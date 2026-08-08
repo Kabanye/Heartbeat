@@ -1,0 +1,24 @@
+@import "tailwindcss";
+
+/* Custom Heartbeat theme */
+:root {
+  --heartbeat-red: #ef4444;
+  --heartbeat-green: #22c55e;
+  --heartbeat-gray: #1f2937;
+}
+
+body {
+  background-color: #111827;
+  color: #f3f4f6;
+  font-family: 'Inter', system-ui, sans-serif;
+}
+
+/* Pulse animation for heartbeat */
+@keyframes heartbeat {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.1); }
+}
+
+.heartbeat-pulse {
+  animation: heartbeat 1.5s ease-in-out infinite;
+}

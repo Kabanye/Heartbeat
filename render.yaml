@@ -1,0 +1,111 @@
+services:
+  # Django Web Service
+  - type: web
+    name: heartbeat-api
+    runtime: python
+    rootDir: backend
+    buildCommand: |
+      pip install -r requirements.txt
+      python manage.py collectstatic --noinput
+      python manage.py migrate
+    startCommand: gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 3 --log-file -
+    envVars:
+      - key: DJANGO_SECRET_KEY
+        generateValue: true
+      - key: DEBUG
+        value: "False"
+      - key: DJANGO_ENV
+        value: "production"
+      - key: ALLOWED_HOSTS
+        value: "*.onrender.com,localhost"
+      - key: DB_NAME
+        value: defaultdb
+      - key: DB_HOST
+        value: your-project.aivencloud.com
+      - key: DB_PORT
+        value: "21699"
+      - key: DB_USER
+        value: avnadmin
+      - key: DB_PASSWORD
+        sync: false
+      - key: CORS_ALLOWED_ORIGINS
+        value: "https://heartbeat-frontend.onrender.com,http://localhost:3000"
+      - key: CELERY_BROKER_URL
+        fromService:
+          type: redis
+          name: heartbeat-redis
+          property: connectionString
+      - key: ENCRYPTION_KEY
+        sync: false
+
+  # Celery Worker
+  - type: worker
+    name: heartbeat-worker
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: celery -A config worker -l info --concurrency=4
+    envVars:
+      - key: DJANGO_SECRET_KEY
+        fromService:
+          type: web
+          name: heartbeat-api
+          property: env.DJANGO_SECRET_KEY
+      - key: DJANGO_ENV
+        value: "production"
+      - key: DB_NAME
+        value: defaultdb
+      - key: DB_HOST
+        value: your-project.aivencloud.com
+      - key: DB_PORT
+        value: "21699"
+      - key: DB_USER
+        value: avnadmin
+      - key: DB_PASSWORD
+        sync: false
+      - key: CELERY_BROKER_URL
+        fromService:
+          type: redis
+          name: heartbeat-redis
+          property: connectionString
+      - key: ENCRYPTION_KEY
+        sync: false
+
+  # Celery Beat
+  - type: worker
+    name: heartbeat-beat
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: celery -A config beat -l info
+    envVars:
+      - key: DJANGO_SECRET_KEY
+        fromService:
+          type: web
+          name: heartbeat-api
+          property: env.DJANGO_SECRET_KEY
+      - key: DJANGO_ENV
+        value: "production"
+      - key: DB_NAME
+        value: defaultdb
+      - key: DB_HOST
+        value: your-project.aivencloud.com
+      - key: DB_PORT
+        value: "21699"
+      - key: DB_USER
+        value: avnadmin
+      - key: DB_PASSWORD
+        sync: false
+      - key: CELERY_BROKER_URL
+        fromService:
+          type: redis
+          name: heartbeat-redis
+          property: connectionString
+      - key: ENCRYPTION_KEY
+        sync: false
+
+  # Redis
+  - type: redis
+    name: heartbeat-redis
+    ipAllowList: []
+    plan: free

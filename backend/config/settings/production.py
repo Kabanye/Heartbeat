@@ -33,9 +33,6 @@ if REDIS_URL:
     CACHES['default']['LOCATION'] = REDIS_URL
     CACHES['default']['OPTIONS'] = {
         'CLIENT_CLASS': 'django_redis.client.DefaultClient',
-        'CONNECTION_POOL_KWARGS': {
-            'ssl_cert_reqs': None,  # Required for Upstash Redis SSL
-        },
     }
     if not CELERY_BROKER_URL or CELERY_BROKER_URL == 'redis://localhost:6379/0':
         CELERY_BROKER_URL = os.environ.get('CELERY_BROKER_URL', '')

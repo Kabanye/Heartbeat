@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import Layout from '../components/Layout';
 import { ServicesSkeleton } from '../components/Skeleton';
 import { servicesApi } from '../services/services';
@@ -30,18 +30,6 @@ const Icons = {
       <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
     </svg>
   ),
-  Eye: () => (
-    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-      <circle cx="12" cy="12" r="3" />
-    </svg>
-  ),
-  EyeOff: () => (
-    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-      <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
-      <line x1="1" y1="1" x2="23" y2="23" />
-    </svg>
-  ),
   Empty: () => (
     <svg className="w-24 h-24" style={{ color: 'rgba(255,255,255,0.06)' }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1">
       <rect x="2" y="2" width="20" height="8" rx="2" />
@@ -67,6 +55,12 @@ const Icons = {
       <path d="M5 12h14M12 5l7 7-7 7" />
     </svg>
   ),
+  Eye: () => (
+    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  ),
 };
 
 const PROVIDERS = ['AIVEN', 'AWS', 'GCP', 'AZURE', 'SELF_HOSTED', 'OTHER'];
@@ -87,6 +81,8 @@ const defaultForm = {
 };
 
 export default function Services() {
+  const navigate = useNavigate();
+  const toast = useToast();
   const [services, setServices] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -97,33 +93,103 @@ export default function Services() {
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [testingId, setTestingId] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
-  const toast = useToast();
+  
+  // Stable refs
   const fetchedRef = useRef(false);
+  const isMountedRef = useRef(true);
+  const retryCountRef = useRef(0);
+  const retryTimeoutRef = useRef(null);
+  const MAX_RETRIES = 2;
 
-  const loadServices = useCallback(async (isRefresh = false) => {
-    if (!isRefresh && fetchedRef.current) return;
-    if (!isRefresh) fetchedRef.current = true;
-    if (isRefresh) setRefreshing(true);
-    else setLoading(true);
+  // Stable fetch function
+  const fetchServices = useCallback(async () => {
+    const res = await servicesApi.getAll();
+    return res.data.results || [];
+  }, []);
 
-    try {
-      const res = await servicesApi.getAll();
-      setServices(res.data.results || []);
-      setError(null);
-      if (isRefresh) toast.success(null, 'Services refreshed');
-    } catch (err) {
-      setError('Failed to load services');
-      if (!isRefresh) toast.error('Error', 'Failed to load services');
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, [toast]);
-
+  // Load services on mount - runs once
   useEffect(() => {
-    loadServices();
-    return () => { fetchedRef.current = false; };
-  }, [loadServices]);
+    isMountedRef.current = true;
+    let cancelled = false;
+
+    const loadData = async () => {
+      if (fetchedRef.current) return;
+      fetchedRef.current = true;
+
+      try {
+        const data = await fetchServices();
+        if (!cancelled && isMountedRef.current) {
+          setServices(data);
+          setError(null);
+          retryCountRef.current = 0;
+        }
+      } catch (err) {
+        if (cancelled || !isMountedRef.current) return;
+        console.error('Services load error:', err.message);
+        
+        if (retryCountRef.current < MAX_RETRIES) {
+          retryCountRef.current += 1;
+          retryTimeoutRef.current = setTimeout(() => {
+            if (!cancelled && isMountedRef.current) {
+              fetchedRef.current = false;
+              loadData();
+            }
+          }, 3000 * retryCountRef.current);
+          return;
+        }
+        
+        setError('Failed to load services');
+        toast.error('Error', 'Failed to load services');
+      } finally {
+        if (!cancelled && isMountedRef.current) {
+          setLoading(false);
+        }
+      }
+    };
+
+    loadData();
+
+    return () => {
+      cancelled = true;
+      isMountedRef.current = false;
+      if (retryTimeoutRef.current) {
+        clearTimeout(retryTimeoutRef.current);
+      }
+    };
+  }, []); // Empty dependency - runs once on mount
+
+  // Refresh handler
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      const data = await fetchServices();
+      if (isMountedRef.current) {
+        setServices(data);
+        setError(null);
+        toast.success(null, 'Services refreshed');
+      }
+    } catch (err) {
+      if (isMountedRef.current) {
+        toast.error('Error', 'Failed to refresh');
+      }
+    } finally {
+      if (isMountedRef.current) {
+        setRefreshing(false);
+      }
+    }
+  }, [fetchServices, toast]);
+
+  // Reload after create/update/delete
+  const reloadServices = useCallback(async () => {
+    try {
+      const data = await fetchServices();
+      if (isMountedRef.current) {
+        setServices(data);
+      }
+    } catch (err) {
+      // Silently fail
+    }
+  }, [fetchServices]);
 
   const openCreateForm = () => {
     setEditingId(null);
@@ -131,7 +197,8 @@ export default function Services() {
     setShowForm(true);
   };
 
-  const openEditForm = (service) => {
+  const openEditForm = (e, service) => {
+    e.stopPropagation(); // Prevent navigation
     setEditingId(service.id);
     setForm({
       name: service.name,
@@ -161,7 +228,6 @@ export default function Services() {
       };
 
       if (editingId) {
-        // Only send password if provided
         if (!payload.password) delete payload.password;
         if (!payload.username) delete payload.username;
         await servicesApi.update(editingId, payload);
@@ -174,8 +240,7 @@ export default function Services() {
       setShowForm(false);
       setEditingId(null);
       setForm(defaultForm);
-      fetchedRef.current = false;
-      loadServices();
+      reloadServices();
     } catch (err) {
       const msg = err.response?.data?.detail || err.response?.data?.error || 'Please check your inputs';
       toast.error('Failed to save service', msg);
@@ -184,7 +249,8 @@ export default function Services() {
     }
   };
 
-  const handleToggle = async (id) => {
+  const handleToggle = async (e, id) => {
+    e.stopPropagation(); // Prevent navigation
     try {
       await servicesApi.toggle(id);
       setServices(prev =>
@@ -196,10 +262,11 @@ export default function Services() {
     }
   };
 
-  const handleDelete = async (id) => {
+  const handleDelete = async () => {
+    if (!deleteConfirm) return;
     try {
-      await servicesApi.delete(id);
-      setServices(prev => prev.filter(s => s.id !== id));
+      await servicesApi.delete(deleteConfirm);
+      setServices(prev => prev.filter(s => s.id !== deleteConfirm));
       setDeleteConfirm(null);
       toast.success('Service deleted', 'The service has been removed');
     } catch (err) {
@@ -207,7 +274,8 @@ export default function Services() {
     }
   };
 
-  const handleTestConnection = async (id) => {
+  const handleTestConnection = async (e, id) => {
+    e.stopPropagation(); // Prevent navigation
     setTestingId(id);
     try {
       const res = await servicesApi.testConnection(id);
@@ -223,11 +291,48 @@ export default function Services() {
     }
   };
 
+  const handleServiceClick = (id) => {
+    navigate(`/services/${id}`);
+  };
+
   // Loading State
   if (loading) {
     return (
       <Layout>
         <ServicesSkeleton />
+      </Layout>
+    );
+  }
+
+  // Error State
+  if (error) {
+    return (
+      <Layout>
+        <div className="flex flex-col items-center justify-center min-h-[80vh] gap-4" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+          <div className="w-16 h-16 rounded-full flex items-center justify-center" style={{ backgroundColor: '#FF5D731F' }}>
+            <svg className="w-8 h-8" style={{ color: '#FF8FA3' }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <circle cx="12" cy="12" r="10" />
+              <line x1="12" y1="8" x2="12" y2="12" />
+              <line x1="12" y1="16" x2="12.01" y2="16" />
+            </svg>
+          </div>
+          <p className="text-[#9C8AA0] text-sm">{error}</p>
+          <button
+            onClick={() => {
+              fetchedRef.current = false;
+              retryCountRef.current = 0;
+              setLoading(true);
+              setError(null);
+              // Force reload
+              window.location.reload();
+            }}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg transition-colors text-sm font-medium"
+            style={{ backgroundColor: '#FF5D731F', color: '#FF8FA3' }}
+          >
+            <Icons.Refresh />
+            Try Again
+          </button>
+        </div>
       </Layout>
     );
   }
@@ -245,7 +350,7 @@ export default function Services() {
           </div>
           <div className="flex items-center gap-2">
             <button
-              onClick={() => loadServices(true)}
+              onClick={handleRefresh}
               disabled={refreshing}
               className="p-2 rounded-lg transition-colors disabled:opacity-50"
               style={{ color: '#9C8AA0' }}
@@ -436,7 +541,7 @@ export default function Services() {
                   <button onClick={() => setDeleteConfirm(null)} className="flex-1 py-2.5 rounded-lg text-sm font-medium border" style={{ color: '#9C8AA0', borderColor: 'rgba(255,255,255,0.08)' }}>
                     Cancel
                   </button>
-                  <button onClick={() => handleDelete(deleteConfirm)} className="flex-1 py-2.5 rounded-lg text-sm font-medium" style={{ backgroundColor: '#FF5D73', color: '#1B0E12' }}>
+                  <button onClick={handleDelete} className="flex-1 py-2.5 rounded-lg text-sm font-medium" style={{ backgroundColor: '#FF5D73', color: '#1B0E12' }}>
                     Delete
                   </button>
                 </div>
@@ -451,10 +556,11 @@ export default function Services() {
             {services.map((service) => (
               <div
                 key={service.id}
-                className="flex items-center justify-between p-4 rounded-xl border transition-all duration-200 group"
+                onClick={() => handleServiceClick(service.id)}
+                className="flex items-center justify-between p-4 rounded-xl border transition-all duration-200 group cursor-pointer"
                 style={{ backgroundColor: '#1F1329', borderColor: 'rgba(255,255,255,0.06)' }}
               >
-                <div className="flex items-center gap-3.5 min-w-0">
+                <div className="flex items-center gap-3.5 min-w-0 flex-1">
                   <div className="relative flex-shrink-0">
                     <span
                       className="block w-2.5 h-2.5 rounded-full"
@@ -469,14 +575,17 @@ export default function Services() {
                     />
                   </div>
                   <div className="min-w-0">
-                    <p className="text-[#F6EDE9] font-medium text-sm truncate">{service.name}</p>
+                    <p className="text-[#F6EDE9] font-medium text-sm truncate group-hover:text-[#FF8FA3] transition-colors">
+                      {service.name}
+                    </p>
                     <p className="text-xs text-[#9C8AA0]/70 mt-0.5 truncate">
                       {service.service_type_display} • {service.host}:{service.port}
                     </p>
                   </div>
+                  <Icons.ArrowRight />
                 </div>
 
-                <div className="flex items-center gap-1.5 flex-shrink-0">
+                <div className="flex items-center gap-1.5 flex-shrink-0 ml-3" onClick={(e) => e.stopPropagation()}>
                   <span
                     className="text-xs px-2.5 py-1 rounded-full font-medium hidden sm:block"
                     style={{
@@ -492,7 +601,7 @@ export default function Services() {
                   </span>
 
                   <button
-                    onClick={() => handleTestConnection(service.id)}
+                    onClick={(e) => handleTestConnection(e, service.id)}
                     disabled={testingId === service.id}
                     className="p-2 rounded-lg transition-colors disabled:opacity-50 hidden sm:block"
                     style={{ color: '#9C8AA0' }}
@@ -509,7 +618,7 @@ export default function Services() {
                   </button>
 
                   <button
-                    onClick={() => handleToggle(service.id)}
+                    onClick={(e) => handleToggle(e, service.id)}
                     className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
                     style={{
                       color: service.enabled ? '#7DD9A6' : '#9C8AA0',
@@ -520,7 +629,7 @@ export default function Services() {
                   </button>
 
                   <button
-                    onClick={() => openEditForm(service)}
+                    onClick={(e) => openEditForm(e, service)}
                     className="p-2 rounded-lg transition-colors"
                     style={{ color: '#9C8AA0' }}
                     title="Edit"
@@ -529,7 +638,10 @@ export default function Services() {
                   </button>
 
                   <button
-                    onClick={() => setDeleteConfirm(service.id)}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setDeleteConfirm(service.id);
+                    }}
                     className="p-2 rounded-lg transition-colors"
                     style={{ color: '#9C8AA0' }}
                     title="Delete"
@@ -541,7 +653,6 @@ export default function Services() {
             ))}
           </div>
         ) : (
-          /* Empty State */
           <div className="flex flex-col items-center justify-center py-20 text-center">
             <div className="mb-6">
               <Icons.Empty />

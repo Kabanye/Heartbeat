@@ -1,7 +1,7 @@
 """
 API views for notifications.
 """
-from rest_framework import viewsets, permissions, status
+from rest_framework import viewsets, permissions, status, mixins
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.core.cache import cache
@@ -17,6 +17,7 @@ class NotificationViewSet(viewsets.ReadOnlyModelViewSet):
     """
     serializer_class = NotificationSerializer
     permission_classes = [permissions.IsAuthenticated]
+    queryset = Notification.objects.none()  # Required by DRF
     
     def get_queryset(self):
         """Return notifications for the current user."""
@@ -39,7 +40,7 @@ class NotificationViewSet(viewsets.ReadOnlyModelViewSet):
         
         if count is None:
             count = self.get_queryset().filter(is_read=False).count()
-            cache.set(cache_key, count, timeout=60)  # Cache for 1 minute
+            cache.set(cache_key, count, timeout=60)
         
         return Response({'count': count})
     
@@ -59,22 +60,40 @@ class NotificationViewSet(viewsets.ReadOnlyModelViewSet):
         return Response({'status': 'all marked as read'})
 
 
-class NotificationPreferenceViewSet(viewsets.ModelViewSet):
+class NotificationPreferenceViewSet(mixins.RetrieveModelMixin,
+                                     mixins.UpdateModelMixin,
+                                     mixins.ListModelMixin,
+                                     viewsets.GenericViewSet):
     """
     ViewSet for managing notification preferences.
     Each user has exactly one preference record.
+    
+    Supports: GET (retrieve/list), PUT (update), PATCH (partial_update)
     """
     serializer_class = NotificationPreferenceSerializer
     permission_classes = [permissions.IsAuthenticated]
+    queryset = NotificationPreference.objects.all()
     
     def get_object(self):
         """Get or create preferences for current user."""
-        pref, _ = NotificationPreference.objects.get_or_create(
+        pref, created = NotificationPreference.objects.get_or_create(
             user=self.request.user
         )
         return pref
     
+    def get_queryset(self):
+        """Return preferences for the current user only."""
+        if getattr(self, 'swagger_fake_view', False):
+            return NotificationPreference.objects.none()
+        return NotificationPreference.objects.filter(user=self.request.user)
+    
+    def list(self, request, *args, **kwargs):
+        """Get current user's preferences."""
+        instance = self.get_object()
+        serializer = self.get_serializer(instance)
+        return Response(serializer.data)
+    
     def perform_update(self, serializer):
         """Clear cache when preferences are updated."""
-        super().perform_update(serializer)
+        serializer.save()
         cache.delete(f'user_{self.request.user.id}_preferences')

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import Layout from '../components/Layout';
 import { NotificationsSkeleton } from '../components/Skeleton';
 import { notificationsApi } from '../services/notifications';
@@ -89,6 +89,7 @@ const getNotificationStyle = (type) => {
 };
 
 const getTimeAgo = (dateString) => {
+  if (!dateString) return '';
   const date = new Date(dateString);
   const now = new Date();
   const seconds = Math.floor((now - date) / 1000);
@@ -101,60 +102,133 @@ const getTimeAgo = (dateString) => {
 };
 
 export default function Notifications() {
+  const toast = useToast();
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [filter, setFilter] = useState('all');
   const [actionLoading, setActionLoading] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
-  const toast = useToast();
+  
+  // Stable refs
+  const fetchedRef = useRef(false);
+  const isMountedRef = useRef(true);
+  const retryCountRef = useRef(0);
+  const retryTimeoutRef = useRef(null);
+  const MAX_RETRIES = 2;
 
-  const loadNotifications = useCallback(async (isRefresh = false) => {
-    if (isRefresh) setRefreshing(true);
-    else setLoading(true);
-    
-    try {
-      const res = await notificationsApi.getAll();
-      setNotifications(res.data.results || []);
-      setError(null);
-      if (isRefresh) toast.success(null, 'Notifications refreshed');
-    } catch (err) {
-      setError('Failed to load notifications');
-      if (!isRefresh) toast.error('Error', 'Failed to load notifications');
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, [toast]);
+  // Stable fetch function
+  const fetchNotifications = useCallback(async () => {
+    const res = await notificationsApi.getAll();
+    return res.data.results || [];
+  }, []);
 
+  // Load data on mount
   useEffect(() => {
-    loadNotifications();
-  }, [loadNotifications]);
+    isMountedRef.current = true;
+    let cancelled = false;
+
+    const loadData = async () => {
+      if (fetchedRef.current) return;
+      fetchedRef.current = true;
+
+      try {
+        const data = await fetchNotifications();
+        if (!cancelled && isMountedRef.current) {
+          setNotifications(data);
+          setError(null);
+          retryCountRef.current = 0;
+        }
+      } catch (err) {
+        if (cancelled || !isMountedRef.current) return;
+        console.error('Notifications load error:', err.message);
+        
+        if (retryCountRef.current < MAX_RETRIES) {
+          retryCountRef.current += 1;
+          retryTimeoutRef.current = setTimeout(() => {
+            if (!cancelled && isMountedRef.current) {
+              fetchedRef.current = false;
+              loadData();
+            }
+          }, 3000 * retryCountRef.current);
+          return;
+        }
+        
+        setError('Failed to load notifications');
+        toast.error('Error', 'Failed to load notifications');
+      } finally {
+        if (!cancelled && isMountedRef.current) {
+          setLoading(false);
+        }
+      }
+    };
+
+    loadData();
+
+    return () => {
+      cancelled = true;
+      isMountedRef.current = false;
+      if (retryTimeoutRef.current) {
+        clearTimeout(retryTimeoutRef.current);
+      }
+    };
+  }, []); // Empty dependency - runs once on mount
+
+  // Refresh handler
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      const data = await fetchNotifications();
+      if (isMountedRef.current) {
+        setNotifications(data);
+        setError(null);
+        toast.success(null, 'Notifications refreshed');
+      }
+    } catch (err) {
+      if (isMountedRef.current) {
+        toast.error('Error', 'Failed to refresh');
+      }
+    } finally {
+      if (isMountedRef.current) {
+        setRefreshing(false);
+      }
+    }
+  }, [fetchNotifications, toast]);
 
   const handleMarkRead = async (id) => {
     setActionLoading(id);
     try {
       await notificationsApi.markRead(id);
-      setNotifications(prev =>
-        prev.map(n => n.id === id ? { ...n, is_read: true } : n)
-      );
-      toast.success(null, 'Notification marked as read');
+      if (isMountedRef.current) {
+        setNotifications(prev =>
+          prev.map(n => n.id === id ? { ...n, is_read: true } : n)
+        );
+        toast.success(null, 'Notification marked as read');
+      }
     } catch (err) {
-      toast.error('Error', 'Failed to mark as read');
+      if (isMountedRef.current) {
+        toast.error('Error', 'Failed to mark as read');
+      }
     } finally {
-      setActionLoading(null);
+      if (isMountedRef.current) {
+        setActionLoading(null);
+      }
     }
   };
 
   const handleMarkAllRead = async () => {
     try {
       await notificationsApi.markAllRead();
-      setNotifications(prev =>
-        prev.map(n => ({ ...n, is_read: true }))
-      );
-      toast.success(null, 'All notifications marked as read');
+      if (isMountedRef.current) {
+        setNotifications(prev =>
+          prev.map(n => ({ ...n, is_read: true }))
+        );
+        toast.success(null, 'All notifications marked as read');
+      }
     } catch (err) {
-      toast.error('Error', 'Failed to mark all as read');
+      if (isMountedRef.current) {
+        toast.error('Error', 'Failed to mark all as read');
+      }
     }
   };
 
@@ -166,7 +240,7 @@ export default function Notifications() {
 
   const unreadCount = notifications.filter(n => !n.is_read).length;
 
-  // Loading State - Skeleton
+  // Loading State
   if (loading) {
     return (
       <Layout>
@@ -190,9 +264,10 @@ export default function Notifications() {
           <p className="text-[#9C8AA0] text-sm">{error}</p>
           <button
             onClick={() => {
+              fetchedRef.current = false;
+              retryCountRef.current = 0;
               setLoading(true);
               setError(null);
-              loadNotifications();
             }}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-lg transition-colors text-sm font-medium"
             style={{ backgroundColor: '#FF5D731F', color: '#FF8FA3' }}
@@ -221,7 +296,7 @@ export default function Notifications() {
           
           <div className="flex items-center gap-2">
             <button
-              onClick={() => loadNotifications(true)}
+              onClick={handleRefresh}
               disabled={refreshing}
               className="p-2 rounded-lg transition-colors disabled:opacity-50"
               style={{ color: '#9C8AA0' }}
@@ -340,7 +415,7 @@ export default function Notifications() {
                         <button
                           onClick={() => handleMarkRead(notification.id)}
                           disabled={actionLoading === notification.id}
-                          className="flex items-center gap-1 text-xs transition-colors disabled:opacity-50"
+                          className="flex items-center gap-1 text-xs transition-colors disabled:opacity-50 hover:opacity-80"
                           style={{ color: '#9C8AA0' }}
                         >
                           {actionLoading === notification.id ? (

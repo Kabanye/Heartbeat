@@ -13,12 +13,6 @@ const Icons = {
       <polyline points="12 19 5 12 12 5" />
     </svg>
   ),
-  Edit: () => (
-    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-    </svg>
-  ),
   Trash: () => (
     <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
       <polyline points="3 6 5 6 21 6" />
@@ -28,12 +22,6 @@ const Icons = {
   Test: () => (
     <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
       <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
-    </svg>
-  ),
-  Refresh: () => (
-    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      <polyline points="23 4 23 10 17 10" />
-      <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
     </svg>
   ),
   Clock: () => (
@@ -48,13 +36,6 @@ const Icons = {
       <rect x="2" y="14" width="20" height="8" rx="2" />
       <circle cx="6" cy="6" r="1" fill="currentColor" />
       <circle cx="6" cy="18" r="1" fill="currentColor" />
-    </svg>
-  ),
-  Database: () => (
-    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <ellipse cx="12" cy="5" rx="9" ry="3" />
-      <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" />
-      <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
     </svg>
   ),
   Shield: () => (
@@ -75,6 +56,12 @@ const Icons = {
       <polyline points="22 4 12 14.01 9 11.01" />
     </svg>
   ),
+  Refresh: () => (
+    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <polyline points="23 4 23 10 17 10" />
+      <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+    </svg>
+  ),
 };
 
 const getTimeAgo = (dateString) => {
@@ -90,13 +77,6 @@ const getTimeAgo = (dateString) => {
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 };
 
-const formatDuration = (seconds) => {
-  if (!seconds) return 'N/A';
-  if (seconds < 60) return `${seconds.toFixed(0)}ms`;
-  if (seconds < 1000) return `${seconds.toFixed(1)}ms`;
-  return `${(seconds / 1000).toFixed(2)}s`;
-};
-
 export default function ServiceDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -108,46 +88,88 @@ export default function ServiceDetail() {
   const [error, setError] = useState(null);
   const [testing, setTesting] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  
+  // Stable refs
   const fetchedRef = useRef(false);
+  const isMountedRef = useRef(true);
+  const retryCountRef = useRef(0);
+  const retryTimeoutRef = useRef(null);
+  const MAX_RETRIES = 2;
 
-  const loadData = useCallback(async (isRefresh = false) => {
-    if (!isRefresh && fetchedRef.current) return;
-    if (!isRefresh) fetchedRef.current = true;
+  // Stable fetch function
+  const fetchServiceData = useCallback(async () => {
+    const [serviceRes, checksRes, incidentsRes] = await Promise.all([
+      servicesApi.getById(id),
+      monitoringApi.getHealthChecks(),
+      monitoringApi.getIncidents(),
+    ]);
+    
+    const serviceChecks = (checksRes.data.results || checksRes.data || [])
+      .filter(check => check.service === parseInt(id))
+      .slice(0, 20);
+    
+    const serviceIncidents = (incidentsRes.data.results || incidentsRes.data || [])
+      .filter(inc => inc.service === parseInt(id));
+    
+    return {
+      service: serviceRes.data,
+      healthChecks: serviceChecks,
+      incidents: serviceIncidents,
+    };
+  }, [id]);
 
-    try {
-      const [serviceRes, checksRes, incidentsRes] = await Promise.all([
-        servicesApi.getById(id),
-        monitoringApi.getHealthChecks(),
-        monitoringApi.getIncidents(),
-      ]);
-      
-      setService(serviceRes.data);
-      
-      // Filter health checks for this service
-      const serviceChecks = (checksRes.data.results || checksRes.data || [])
-        .filter(check => check.service === parseInt(id))
-        .slice(0, 20);
-      setHealthChecks(serviceChecks);
-      
-      // Filter incidents for this service
-      const serviceIncidents = (incidentsRes.data.results || incidentsRes.data || [])
-        .filter(inc => inc.service === parseInt(id));
-      setIncidents(serviceIncidents);
-      
-      setError(null);
-    } catch (err) {
-      console.error('Failed to load service:', err);
-      setError('Failed to load service details');
-      toast.error('Error', 'Failed to load service details');
-    } finally {
-      setLoading(false);
-    }
-  }, [id, toast]);
-
+  // Load data on mount
   useEffect(() => {
+    isMountedRef.current = true;
+    let cancelled = false;
+
+    const loadData = async () => {
+      if (fetchedRef.current) return;
+      fetchedRef.current = true;
+
+      try {
+        const data = await fetchServiceData();
+        if (!cancelled && isMountedRef.current) {
+          setService(data.service);
+          setHealthChecks(data.healthChecks);
+          setIncidents(data.incidents);
+          setError(null);
+          retryCountRef.current = 0;
+        }
+      } catch (err) {
+        if (cancelled || !isMountedRef.current) return;
+        console.error('Service detail load error:', err.message);
+        
+        if (retryCountRef.current < MAX_RETRIES) {
+          retryCountRef.current += 1;
+          retryTimeoutRef.current = setTimeout(() => {
+            if (!cancelled && isMountedRef.current) {
+              fetchedRef.current = false;
+              loadData();
+            }
+          }, 3000 * retryCountRef.current);
+          return;
+        }
+        
+        setError('Failed to load service details');
+        toast.error('Error', 'Failed to load service details');
+      } finally {
+        if (!cancelled && isMountedRef.current) {
+          setLoading(false);
+        }
+      }
+    };
+
     loadData();
-    return () => { fetchedRef.current = false; };
-  }, [loadData]);
+
+    return () => {
+      cancelled = true;
+      isMountedRef.current = false;
+      if (retryTimeoutRef.current) {
+        clearTimeout(retryTimeoutRef.current);
+      }
+    };
+  }, [id]); // Re-run when id changes
 
   const handleTestConnection = async () => {
     setTesting(true);
@@ -158,19 +180,30 @@ export default function ServiceDetail() {
       } else {
         toast.error('Connection failed', res.data.error_message || 'Unknown error');
       }
-      loadData(true);
+      // Refresh data after test
+      try {
+        const data = await fetchServiceData();
+        if (isMountedRef.current) {
+          setService(data.service);
+          setHealthChecks(data.healthChecks);
+        }
+      } catch (err) {
+        // Silently fail refresh
+      }
     } catch (err) {
       toast.error('Error', 'Failed to test connection');
     } finally {
-      setTesting(false);
+      if (isMountedRef.current) setTesting(false);
     }
   };
 
   const handleToggle = async () => {
     try {
       await servicesApi.toggle(id);
-      setService(prev => ({ ...prev, enabled: !prev.enabled }));
-      toast.success(null, `Service ${service.enabled ? 'disabled' : 'enabled'}`);
+      if (isMountedRef.current) {
+        setService(prev => prev ? { ...prev, enabled: !prev.enabled } : null);
+        toast.success(null, `Service ${service?.enabled ? 'disabled' : 'enabled'}`);
+      }
     } catch (err) {
       toast.error('Error', 'Failed to toggle service');
     }
@@ -180,7 +213,7 @@ export default function ServiceDetail() {
     try {
       await servicesApi.delete(id);
       toast.success('Service deleted', 'Redirecting...');
-      navigate('/services');
+      navigate('/services', { replace: true });
     } catch (err) {
       toast.error('Error', 'Failed to delete service');
     }
@@ -207,11 +240,11 @@ export default function ServiceDetail() {
   if (error || !service) {
     return (
       <Layout>
-        <div className="flex flex-col items-center justify-center min-h-[80vh] gap-4">
+        <div className="flex flex-col items-center justify-center min-h-[80vh] gap-4" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
           <div className="w-16 h-16 rounded-full flex items-center justify-center" style={{ backgroundColor: '#FF5D731F' }}>
             <Icons.Alert />
           </div>
-          <p className="text-[#9C8AA0]">{error || 'Service not found'}</p>
+          <p className="text-[#9C8AA0] text-sm">{error || 'Service not found'}</p>
           <div className="flex gap-2">
             <Link
               to="/services"
@@ -223,9 +256,9 @@ export default function ServiceDetail() {
             <button
               onClick={() => {
                 fetchedRef.current = false;
+                retryCountRef.current = 0;
                 setLoading(true);
                 setError(null);
-                loadData();
               }}
               className="px-4 py-2 rounded-lg text-sm font-medium border"
               style={{ color: '#9C8AA0', borderColor: 'rgba(255,255,255,0.08)' }}
@@ -247,7 +280,7 @@ export default function ServiceDetail() {
         {/* Breadcrumb */}
         <Link
           to="/services"
-          className="inline-flex items-center gap-1.5 text-sm mb-6 transition-colors"
+          className="inline-flex items-center gap-1.5 text-sm mb-6 transition-colors hover:text-[#F6EDE9]"
           style={{ color: '#9C8AA0' }}
         >
           <Icons.ArrowLeft />
@@ -292,7 +325,7 @@ export default function ServiceDetail() {
               ) : (
                 <Icons.Test />
               )}
-              Test Connection
+              Test
             </button>
             <button
               onClick={handleToggle}
@@ -302,7 +335,7 @@ export default function ServiceDetail() {
                 backgroundColor: service.enabled ? '#7DD9A61F' : 'rgba(156,138,160,0.1)',
               }}
             >
-              {service.enabled ? 'Monitoring On' : 'Monitoring Off'}
+              {service.enabled ? 'On' : 'Off'}
             </button>
             <button
               onClick={() => setShowDeleteConfirm(true)}
@@ -342,7 +375,6 @@ export default function ServiceDetail() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Service Info */}
           <div className="lg:col-span-1 space-y-6">
-            {/* Connection Details */}
             <div className="rounded-2xl border p-5" style={{ backgroundColor: '#1F1329', borderColor: 'rgba(255,255,255,0.06)' }}>
               <h3 className="flex items-center gap-2 text-sm font-semibold text-[#F6EDE9] mb-4">
                 <Icons.Server />
@@ -363,36 +395,25 @@ export default function ServiceDetail() {
               </div>
             </div>
 
-            {/* Status */}
             <div className="rounded-2xl border p-5" style={{ backgroundColor: '#1F1329', borderColor: 'rgba(255,255,255,0.06)' }}>
               <h3 className="flex items-center gap-2 text-sm font-semibold text-[#F6EDE9] mb-4">
                 <Icons.Shield />
                 Status
               </h3>
               <div className="space-y-3">
-                <div className="flex justify-between items-center">
-                  <span className="text-xs text-[#9C8AA0]">Current Status</span>
-                  <span className="text-xs font-medium px-2 py-0.5 rounded-full" style={{
-                    color: isHealthy ? '#7DD9A6' : isUnhealthy ? '#FF8FA3' : '#9C8AA0',
-                    backgroundColor: isHealthy ? '#7DD9A61F' : isUnhealthy ? '#FF5D731F' : 'rgba(156,138,160,0.1)',
-                  }}>
-                    {service.status_display}
-                  </span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-xs text-[#9C8AA0]">Monitoring</span>
-                  <span className="text-xs font-medium" style={{ color: service.enabled ? '#7DD9A6' : '#9C8AA0' }}>
-                    {service.enabled ? 'Enabled' : 'Disabled'}
-                  </span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-xs text-[#9C8AA0]">Check Interval</span>
-                  <span className="text-xs text-[#F6EDE9]">{service.check_interval}s</span>
-                </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-xs text-[#9C8AA0]">Last Checked</span>
-                  <span className="text-xs text-[#F6EDE9]">{getTimeAgo(service.last_checked_at)}</span>
-                </div>
+                {[
+                  { label: 'Current Status', value: service.status_display, color: isHealthy ? '#7DD9A6' : isUnhealthy ? '#FF8FA3' : '#9C8AA0', bg: isHealthy ? '#7DD9A61F' : isUnhealthy ? '#FF5D731F' : 'rgba(156,138,160,0.1)' },
+                  { label: 'Monitoring', value: service.enabled ? 'Enabled' : 'Disabled', color: service.enabled ? '#7DD9A6' : '#9C8AA0' },
+                  { label: 'Check Interval', value: `${service.check_interval}s` },
+                  { label: 'Last Checked', value: getTimeAgo(service.last_checked_at) },
+                ].map((item) => (
+                  <div key={item.label} className="flex justify-between items-center">
+                    <span className="text-xs text-[#9C8AA0]">{item.label}</span>
+                    <span className="text-xs font-medium" style={{ color: item.color || '#F6EDE9' }}>
+                      {item.value}
+                    </span>
+                  </div>
+                ))}
               </div>
             </div>
           </div>
@@ -451,7 +472,7 @@ export default function ServiceDetail() {
                     <div className="flex items-start gap-3">
                       <div className="flex-shrink-0 mt-0.5">
                         {incident.status === 'OPEN' ? (
-                          <span className="w-2 h-2 rounded-full block" style={{ backgroundColor: '#FF5D73' }} />
+                          <span className="w-2 h-2 rounded-full block animate-pulse" style={{ backgroundColor: '#FF5D73' }} />
                         ) : (
                           <Icons.CheckCircle />
                         )}
@@ -463,7 +484,7 @@ export default function ServiceDetail() {
                           </span>
                           <span className="text-xs text-[#9C8AA0]">{getTimeAgo(incident.started_at)}</span>
                         </div>
-                        <p className="text-xs text-[#9C8AA0]/70 mt-1">{incident.reason}</p>
+                        <p className="text-xs text-[#9C8AA0]/70 mt-1 line-clamp-2">{incident.reason}</p>
                       </div>
                     </div>
                   </div>

@@ -15,6 +15,7 @@ SESSION_COOKIE_SECURE = True
 CSRF_COOKIE_SECURE = True
 SECURE_HSTS_SECONDS = 31536000
 SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')  # Render uses proxy
 
 # Static files
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
@@ -49,4 +50,17 @@ LOGGING = {
         'handlers': ['console'],
         'level': 'INFO',
     },
+    'django': {
+        'handlers': ['console'],
+        'level': 'INFO',
+        'propagate': False,
+    },
+    'django.request': {
+        'handlers': ['console'],
+        'level': 'ERROR',  # Only log errors, not every request
+        'propagate': False,
+    },
 }
+
+# Production email backend (override in .env)
+EMAIL_BACKEND = config('EMAIL_BACKEND', default='django.core.mail.backends.smtp.EmailBackend')

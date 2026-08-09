@@ -7,6 +7,8 @@ from rest_framework.response import Response
 from rest_framework.authtoken.models import Token
 from django.contrib.auth import authenticate, login, logout
 from django.contrib.auth.models import User
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError
 from django.views.decorators.csrf import ensure_csrf_cookie
 from .serializers import UserSerializer, RegisterSerializer
 
@@ -64,11 +66,7 @@ def login_view(request):
         # Get or create token for API authentication
         token, created = Token.objects.get_or_create(user=user)
         
-        # If token was regenerated, mention it (optional)
         message = 'Login successful'
-        if not created:
-            # Token already existed - could be a re-login
-            pass
         
         return Response({
             'user': UserSerializer(user).data,
@@ -82,7 +80,7 @@ def login_view(request):
 
 
 @api_view(['POST'])
-@permission_classes([permissions.AllowAny])  # Allow even with invalid/expired token
+@permission_classes([permissions.AllowAny])
 def logout_view(request):
     """
     Logout and delete the authentication token.
@@ -91,17 +89,14 @@ def logout_view(request):
     If the user is authenticated, their token is deleted.
     The client should always clear the token locally regardless of response.
     """
-    # If user is authenticated, delete their token
     if request.user.is_authenticated:
         try:
             request.user.auth_token.delete()
         except (AttributeError, Token.DoesNotExist):
             pass
         
-        # Django session logout
         logout(request)
     
-    # Always return success - client handles local cleanup
     return Response({
         'message': 'Logged out successfully'
     }, status=status.HTTP_200_OK)
@@ -117,6 +112,127 @@ def user_profile_view(request):
     """
     serializer = UserSerializer(request.user)
     return Response(serializer.data)
+
+
+@api_view(['PATCH', 'PUT'])
+@permission_classes([permissions.IsAuthenticated])
+def update_profile_view(request):
+    """
+    Update user profile information.
+    
+    Allows updating username, email, first_name, and last_name.
+    Validates uniqueness of username and email.
+    """
+    user = request.user
+    data = request.data if request.data else {}
+    
+    changed = False
+    
+    # Update username if provided and different
+    if 'username' in data:
+        new_username = data['username'].strip() if data['username'] else ''
+        if new_username and new_username != user.username:
+            if User.objects.filter(username=new_username).exclude(id=user.id).exists():
+                return Response({
+                    'error': 'Username is already taken'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            user.username = new_username
+            changed = True
+    
+    # Update email if provided and different
+    if 'email' in data:
+        new_email = data['email'].strip() if data['email'] else ''
+        if new_email and new_email != user.email:
+            if User.objects.filter(email=new_email).exclude(id=user.id).exists():
+                return Response({
+                    'error': 'Email is already in use'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            user.email = new_email
+            changed = True
+    
+    # Update first_name if provided
+    if 'first_name' in data:
+        new_first = data['first_name'].strip() if data['first_name'] else ''
+        if new_first != user.first_name:
+            user.first_name = new_first
+            changed = True
+    
+    # Update last_name if provided
+    if 'last_name' in data:
+        new_last = data['last_name'].strip() if data['last_name'] else ''
+        if new_last != user.last_name:
+            user.last_name = new_last
+            changed = True
+    
+    if changed:
+        try:
+            user.save()
+        except Exception as e:
+            return Response({
+                'error': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
+    
+    return Response({
+        'user': UserSerializer(user).data,
+        'message': 'Profile updated' if changed else 'No changes made'
+    })
+
+@api_view(['POST'])
+@permission_classes([permissions.IsAuthenticated])
+def change_password_view(request):
+    """
+    Change user password.
+    
+    Requires current password for verification.
+    Returns a new auth token after password change.
+    """
+    user = request.user
+    current_password = request.data.get('current_password', '')
+    new_password = request.data.get('new_password', '')
+    confirm_password = request.data.get('confirm_password', '')
+    
+    # Validate inputs
+    if not current_password:
+        return Response({
+            'error': 'Current password is required'
+        }, status=status.HTTP_400_BAD_REQUEST)
+    
+    if not new_password:
+        return Response({
+            'error': 'New password is required'
+        }, status=status.HTTP_400_BAD_REQUEST)
+    
+    if new_password != confirm_password:
+        return Response({
+            'error': 'New passwords do not match'
+        }, status=status.HTTP_400_BAD_REQUEST)
+    
+    # Validate password strength
+    try:
+        validate_password(new_password, user)
+    except ValidationError as e:
+        return Response({
+            'error': e.messages
+        }, status=status.HTTP_400_BAD_REQUEST)
+    
+    # Verify current password
+    if not user.check_password(current_password):
+        return Response({
+            'error': 'Current password is incorrect'
+        }, status=status.HTTP_400_BAD_REQUEST)
+    
+    # Set new password
+    user.set_password(new_password)
+    user.save()
+    
+    # Regenerate auth token (invalidates old sessions)
+    Token.objects.filter(user=user).delete()
+    token = Token.objects.create(user=user)
+    
+    return Response({
+        'token': token.key,
+        'message': 'Password changed successfully'
+    })
 
 
 @api_view(['GET'])

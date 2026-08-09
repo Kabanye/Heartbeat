@@ -67,43 +67,139 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
+  
+  // Stable refs
   const fetchedRef = useRef(false);
+  const isMountedRef = useRef(true);
+  const retryCountRef = useRef(0);
+  const retryTimeoutRef = useRef(null);
+  const MAX_RETRIES = 2;
 
-  const loadData = useCallback(async (isRefresh = false) => {
-    if (!isRefresh && fetchedRef.current) return;
-    if (!isRefresh) fetchedRef.current = true;
-    
-    if (isRefresh) setRefreshing(true);
-
-    try {
-      const [servicesRes, incidentsRes, countRes] = await Promise.all([
-        servicesApi.getAll(),
-        monitoringApi.getOpenIncidents(),
-        notificationsApi.getUnreadCount(),
-      ]);
-      setServices(servicesRes.data.results || []);
-      setIncidents(Array.isArray(incidentsRes.data) ? incidentsRes.data : []);
-      setUnreadCount(countRes.data.count || 0);
-      setError(null);
-      if (isRefresh) toast.success(null, 'Dashboard refreshed');
-    } catch (err) {
-      console.error('Dashboard load error:', err);
-      setError('Unable to load dashboard data');
-      if (!isRefresh) toast.error('Connection Error', 'Failed to load dashboard');
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, [toast]);
-
-  useEffect(() => {
-    loadData();
-    return () => {
-      fetchedRef.current = false;
+  // Stable fetch function - no dependencies
+  const fetchDashboardData = useCallback(async () => {
+    const [servicesRes, incidentsRes, countRes] = await Promise.all([
+      servicesApi.getAll(),
+      monitoringApi.getOpenIncidents(),
+      notificationsApi.getUnreadCount(),
+    ]);
+    return {
+      services: servicesRes.data.results || [],
+      incidents: Array.isArray(incidentsRes.data) ? incidentsRes.data : [],
+      unreadCount: countRes.data.count || 0,
     };
-  }, [loadData]);
+  }, []);
 
-  // Loading State - Skeleton
+  // Load data on mount - runs once
+  useEffect(() => {
+    isMountedRef.current = true;
+    let cancelled = false;
+
+    const loadData = async () => {
+      if (fetchedRef.current) return;
+      fetchedRef.current = true;
+
+      try {
+        const data = await fetchDashboardData();
+        if (!cancelled && isMountedRef.current) {
+          setServices(data.services);
+          setIncidents(data.incidents);
+          setUnreadCount(data.unreadCount);
+          setError(null);
+          retryCountRef.current = 0;
+        }
+      } catch (err) {
+        if (cancelled || !isMountedRef.current) return;
+        console.error('Dashboard load error:', err.message);
+        
+        if (retryCountRef.current < MAX_RETRIES) {
+          retryCountRef.current += 1;
+          retryTimeoutRef.current = setTimeout(() => {
+            if (!cancelled && isMountedRef.current) {
+              fetchedRef.current = false;
+              loadData();
+            }
+          }, 3000 * retryCountRef.current);
+          return;
+        }
+        
+        setError('Unable to load dashboard data');
+        toast.error('Connection Error', 'Failed to load dashboard. Please try again.');
+      } finally {
+        if (!cancelled && isMountedRef.current) {
+          setLoading(false);
+        }
+      }
+    };
+
+    loadData();
+
+    return () => {
+      cancelled = true;
+      isMountedRef.current = false;
+      if (retryTimeoutRef.current) {
+        clearTimeout(retryTimeoutRef.current);
+      }
+    };
+  }, []); // Empty dependency - runs once on mount
+
+  // Manual refresh handler
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      const data = await fetchDashboardData();
+      if (isMountedRef.current) {
+        setServices(data.services);
+        setIncidents(data.incidents);
+        setUnreadCount(data.unreadCount);
+        setError(null);
+        toast.success(null, 'Dashboard refreshed');
+      }
+    } catch (err) {
+      if (isMountedRef.current) {
+        toast.error('Error', 'Failed to refresh dashboard');
+      }
+    } finally {
+      if (isMountedRef.current) {
+        setRefreshing(false);
+      }
+    }
+  }, [fetchDashboardData, toast]);
+
+  // Retry handler for error state
+  const handleRetry = useCallback(() => {
+    fetchedRef.current = false;
+    retryCountRef.current = 0;
+    setLoading(true);
+    setError(null);
+    
+    // Re-trigger the effect by forcing a re-render
+    const loadData = async () => {
+      if (fetchedRef.current) return;
+      fetchedRef.current = true;
+      
+      try {
+        const data = await fetchDashboardData();
+        if (isMountedRef.current) {
+          setServices(data.services);
+          setIncidents(data.incidents);
+          setUnreadCount(data.unreadCount);
+          setError(null);
+        }
+      } catch (err) {
+        if (isMountedRef.current) {
+          setError('Unable to load dashboard data');
+        }
+      } finally {
+        if (isMountedRef.current) {
+          setLoading(false);
+        }
+      }
+    };
+    
+    loadData();
+  }, [fetchDashboardData]);
+
+  // Loading State
   if (loading) {
     return (
       <Layout>
@@ -126,12 +222,7 @@ export default function Dashboard() {
           </div>
           <p className="text-[#9C8AA0] text-sm">{error}</p>
           <button
-            onClick={() => {
-              fetchedRef.current = false;
-              setLoading(true);
-              setError(null);
-              loadData();
-            }}
+            onClick={handleRetry}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-lg transition-colors text-sm font-medium"
             style={{ backgroundColor: '#FF5D731F', color: '#FF8FA3' }}
           >
@@ -149,15 +240,13 @@ export default function Dashboard() {
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
           <div>
-            <h1 className="text-3xl font-bold text-[#F6EDE9] tracking-tight">
-              Dashboard
-            </h1>
+            <h1 className="text-3xl font-bold text-[#F6EDE9] tracking-tight">Dashboard</h1>
             <p className="text-[#9C8AA0] mt-1 text-sm">
               Welcome back, <span className="text-[#FF8FA3] font-medium">{user?.username}</span>
             </p>
           </div>
           <button
-            onClick={() => loadData(true)}
+            onClick={handleRefresh}
             disabled={refreshing}
             className="p-2 rounded-lg transition-colors disabled:opacity-50"
             style={{ color: '#9C8AA0' }}

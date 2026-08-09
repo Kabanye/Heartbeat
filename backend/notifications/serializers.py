@@ -50,8 +50,10 @@ class NotificationPreferenceSerializer(serializers.ModelSerializer):
     class Meta:
         model = NotificationPreference
         fields = [
+            'id',
             'email_enabled',
             'in_app_enabled',
             'incident_alerts',
             'recovery_alerts',
         ]
+        read_only_fields = ['id']

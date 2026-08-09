@@ -83,12 +83,15 @@ export default function Sidebar() {
   const toast = useToast();
   const location = useLocation();
   const navigate = useNavigate();
+  
+  // Stable refs to prevent effect re-runs
   const intervalRef = useRef(null);
+  const failedRef = useRef(false);
+  const isMountedRef = useRef(true);
 
-  // Sync collapsed state to localStorage AND dispatch custom event
+  // Sync collapsed state to localStorage and dispatch event
   useEffect(() => {
     localStorage.setItem('sidebarCollapsed', collapsed);
-    // Dispatch custom event so Layout can react to sidebar changes
     window.dispatchEvent(new CustomEvent('sidebarStateChange'));
   }, [collapsed]);
 
@@ -99,36 +102,60 @@ export default function Sidebar() {
     return () => window.removeEventListener('sidebarToggle', handleToggle);
   }, []);
 
-  // Fetch unread count - only when user is logged in
-  useEffect(() => {
-    if (!user) return;
-
-    fetchUnreadCount();
-    intervalRef.current = setInterval(fetchUnreadCount, 120000);
-    
-    return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
-    };
-  }, [user]);
-
+  // Fetch unread count - stable, stops on error
   const fetchUnreadCount = useCallback(async () => {
+    if (!isMountedRef.current) return;
+    if (failedRef.current) return; // Stop if previous fetch failed
+    
     try {
       const res = await notificationsApi.getUnreadCount();
-      setUnreadCount(res.data.count || 0);
-    } catch (err) {
-      if (err.response?.status === 401) {
-        setUnreadCount(0);
+      if (isMountedRef.current) {
+        setUnreadCount(res.data?.count || 0);
+        failedRef.current = false;
       }
+    } catch (err) {
+      // Stop polling on auth errors
+      if (err.response?.status === 401) {
+        failedRef.current = true;
+        if (isMountedRef.current) setUnreadCount(0);
+      }
+      // Silently ignore network errors
     }
   }, []);
+
+  // Poll for notifications - only when user exists
+  useEffect(() => {
+    isMountedRef.current = true;
+    failedRef.current = false;
+    
+    if (!user) return;
+
+    // Initial fetch
+    fetchUnreadCount();
+    
+    // Poll every 2 minutes
+    intervalRef.current = setInterval(() => {
+      if (!failedRef.current) {
+        fetchUnreadCount();
+      }
+    }, 120000);
+    
+    return () => {
+      isMountedRef.current = false;
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+    };
+  }, [user, fetchUnreadCount]);
 
   const handleLogout = async () => {
     try {
       await logout();
       toast.success('Logged out', 'See you soon!');
-      navigate('/login');
+      navigate('/login', { replace: true });
     } catch (error) {
-      navigate('/login');
+      navigate('/login', { replace: true });
     }
   };
 
@@ -231,14 +258,14 @@ export default function Sidebar() {
 
         {/* User Section */}
         <div className="border-t border-white/[0.06] p-3">
-          {!collapsed && (
+          {!collapsed && user && (
             <div className="flex items-center gap-3 px-3 py-2 mb-3 rounded-lg bg-white/[0.02]">
               <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#FF5D73] to-[#FFB4A8] flex items-center justify-center text-[#1B0E12] text-sm font-bold flex-shrink-0 shadow-lg shadow-[#FF5D73]/20">
-                {user?.username?.charAt(0).toUpperCase()}
+                {user.username?.charAt(0).toUpperCase()}
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-sm text-[#F6EDE9] font-medium truncate">{user?.username}</p>
-                <p className="text-xs text-[#9C8AA0] truncate">{user?.email}</p>
+                <p className="text-sm text-[#F6EDE9] font-medium truncate">{user.username}</p>
+                <p className="text-xs text-[#9C8AA0] truncate">{user.email}</p>
               </div>
             </div>
           )}

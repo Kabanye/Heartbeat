@@ -33,14 +33,6 @@ const Icons = {
       <line x1="3" y1="10" x2="21" y2="10" />
     </svg>
   ),
-  Server: () => (
-    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-      <rect x="2" y="2" width="20" height="8" rx="2" />
-      <rect x="2" y="14" width="20" height="8" rx="2" />
-      <circle cx="6" cy="6" r="1" fill="currentColor" />
-      <circle cx="6" cy="18" r="1" fill="currentColor" />
-    </svg>
-  ),
   Empty: () => (
     <svg className="w-24 h-24" style={{ color: 'rgba(255,255,255,0.06)' }} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1">
       <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
@@ -76,8 +68,7 @@ const getTimeAgo = (dateString) => {
 
 const formatDate = (dateString) => {
   if (!dateString) return 'N/A';
-  const date = new Date(dateString);
-  return date.toLocaleDateString('en-US', {
+  return new Date(dateString).toLocaleDateString('en-US', {
     month: 'short',
     day: 'numeric',
     hour: '2-digit',
@@ -85,45 +76,98 @@ const formatDate = (dateString) => {
   });
 };
 
-const formatDowntime = (duration) => {
-  if (!duration) return 'N/A';
-  // Parse the duration string (e.g., "5 minutes, 30 seconds")
-  return duration;
-};
-
 export default function Incidents() {
+  const toast = useToast();
   const [incidents, setIncidents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [filter, setFilter] = useState('all'); // all | open | resolved
+  const [filter, setFilter] = useState('all');
   const [refreshing, setRefreshing] = useState(false);
-  const toast = useToast();
+  
+  // Stable refs
   const fetchedRef = useRef(false);
+  const isMountedRef = useRef(true);
+  const retryCountRef = useRef(0);
+  const retryTimeoutRef = useRef(null);
+  const MAX_RETRIES = 2;
 
-  const loadIncidents = useCallback(async (isRefresh = false) => {
-    if (!isRefresh && fetchedRef.current) return;
-    if (!isRefresh) fetchedRef.current = true;
-    if (isRefresh) setRefreshing(true);
-    else setLoading(true);
+  // Stable fetch function
+  const fetchIncidents = useCallback(async () => {
+    const res = await monitoringApi.getIncidents();
+    return res.data.results || res.data || [];
+  }, []);
 
-    try {
-      const res = await monitoringApi.getIncidents();
-      setIncidents(res.data.results || res.data || []);
-      setError(null);
-      if (isRefresh) toast.success(null, 'Incidents refreshed');
-    } catch (err) {
-      setError('Failed to load incidents');
-      if (!isRefresh) toast.error('Error', 'Failed to load incidents');
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, [toast]);
-
+  // Load data on mount
   useEffect(() => {
-    loadIncidents();
-    return () => { fetchedRef.current = false; };
-  }, [loadIncidents]);
+    isMountedRef.current = true;
+    let cancelled = false;
+
+    const loadData = async () => {
+      if (fetchedRef.current) return;
+      fetchedRef.current = true;
+
+      try {
+        const data = await fetchIncidents();
+        if (!cancelled && isMountedRef.current) {
+          setIncidents(data);
+          setError(null);
+          retryCountRef.current = 0;
+        }
+      } catch (err) {
+        if (cancelled || !isMountedRef.current) return;
+        console.error('Incidents load error:', err.message);
+        
+        if (retryCountRef.current < MAX_RETRIES) {
+          retryCountRef.current += 1;
+          retryTimeoutRef.current = setTimeout(() => {
+            if (!cancelled && isMountedRef.current) {
+              fetchedRef.current = false;
+              loadData();
+            }
+          }, 3000 * retryCountRef.current);
+          return;
+        }
+        
+        setError('Failed to load incidents');
+        toast.error('Error', 'Failed to load incidents');
+      } finally {
+        if (!cancelled && isMountedRef.current) {
+          setLoading(false);
+        }
+      }
+    };
+
+    loadData();
+
+    return () => {
+      cancelled = true;
+      isMountedRef.current = false;
+      if (retryTimeoutRef.current) {
+        clearTimeout(retryTimeoutRef.current);
+      }
+    };
+  }, []); // Empty dependency - runs once on mount
+
+  // Refresh handler
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      const data = await fetchIncidents();
+      if (isMountedRef.current) {
+        setIncidents(data);
+        setError(null);
+        toast.success(null, 'Incidents refreshed');
+      }
+    } catch (err) {
+      if (isMountedRef.current) {
+        toast.error('Error', 'Failed to refresh');
+      }
+    } finally {
+      if (isMountedRef.current) {
+        setRefreshing(false);
+      }
+    }
+  }, [fetchIncidents, toast]);
 
   const filteredIncidents = incidents.filter(inc => {
     if (filter === 'open') return inc.status === 'OPEN';
@@ -139,21 +183,45 @@ export default function Incidents() {
     return (
       <Layout>
         <div className="p-6 max-w-4xl mx-auto space-y-6" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
-          {/* Header skeleton */}
           <div className="space-y-2">
             <div className="h-8 w-48 bg-[#1F1329] rounded-lg animate-pulse" />
             <div className="h-4 w-64 bg-[#1F1329] rounded animate-pulse" />
           </div>
-          {/* Filter skeleton */}
           <div className="flex gap-1">
             {[1, 2, 3].map(i => (
-              <div key={i} className="h-10 w-20 bg-[#1F1329] rounded-lg animate-pulse" />
+              <div key={i} className="h-10 w-24 bg-[#1F1329] rounded-lg animate-pulse" />
             ))}
           </div>
-          {/* Cards skeleton */}
-          {[1, 2, 3].map(i => (
-            <div key={i} className="h-40 bg-[#1F1329] rounded-2xl animate-pulse" />
+          {[1, 2].map(i => (
+            <div key={i} className="h-44 bg-[#1F1329] rounded-2xl animate-pulse" />
           ))}
+        </div>
+      </Layout>
+    );
+  }
+
+  // Error State
+  if (error) {
+    return (
+      <Layout>
+        <div className="flex flex-col items-center justify-center min-h-[80vh] gap-4" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+          <div className="w-16 h-16 rounded-full flex items-center justify-center" style={{ backgroundColor: '#FF5D731F' }}>
+            <Icons.Alert />
+          </div>
+          <p className="text-[#9C8AA0] text-sm">{error}</p>
+          <button
+            onClick={() => {
+              fetchedRef.current = false;
+              retryCountRef.current = 0;
+              setLoading(true);
+              setError(null);
+            }}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg transition-colors text-sm font-medium"
+            style={{ backgroundColor: '#FF5D731F', color: '#FF8FA3' }}
+          >
+            <Icons.Refresh />
+            Try Again
+          </button>
         </div>
       </Layout>
     );
@@ -173,7 +241,7 @@ export default function Incidents() {
             </p>
           </div>
           <button
-            onClick={() => loadIncidents(true)}
+            onClick={handleRefresh}
             disabled={refreshing}
             className="p-2 rounded-lg transition-colors disabled:opacity-50"
             style={{ color: '#9C8AA0' }}
@@ -248,14 +316,14 @@ export default function Incidents() {
                 <Link
                   key={incident.id}
                   to={`/services/${incident.service}`}
-                  className="block rounded-2xl border p-5 transition-all duration-200 hover:border-opacity-50"
+                  className="block rounded-2xl border p-5 transition-all duration-200 hover:border-opacity-50 group"
                   style={{
                     backgroundColor: isOpen ? 'rgba(255,93,115,0.03)' : '#1F1329',
                     borderColor: isOpen ? 'rgba(255,93,115,0.15)' : 'rgba(255,255,255,0.06)',
                   }}
                 >
                   <div className="flex items-start justify-between gap-4">
-                    <div className="flex items-start gap-3 min-w-0">
+                    <div className="flex items-start gap-3 min-w-0 flex-1">
                       <div className={`flex-shrink-0 mt-0.5 ${isOpen ? 'animate-pulse' : ''}`}>
                         {isOpen ? (
                           <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ backgroundColor: '#FF5D731F' }}>
@@ -269,7 +337,7 @@ export default function Incidents() {
                       </div>
                       <div className="min-w-0">
                         <div className="flex items-center gap-2 mb-1">
-                          <h3 className="font-semibold text-[#F6EDE9] text-sm">
+                          <h3 className="font-semibold text-[#F6EDE9] text-sm group-hover:text-[#FF8FA3] transition-colors">
                             {incident.service_name || `Service #${incident.service}`}
                           </h3>
                           <span
@@ -295,7 +363,7 @@ export default function Incidents() {
                     <div>
                       <div className="flex items-center gap-1.5 mb-1">
                         <Icons.Calendar />
-                        <span className="text-xs text-[#9C8AA0]">Started</span>
+                        <span className="text-[11px] text-[#9C8AA0]">Started</span>
                       </div>
                       <p className="text-xs text-[#F6EDE9]">{formatDate(incident.started_at)}</p>
                     </div>
@@ -303,7 +371,7 @@ export default function Incidents() {
                       <div>
                         <div className="flex items-center gap-1.5 mb-1">
                           <Icons.CheckCircle />
-                          <span className="text-xs text-[#9C8AA0]">Resolved</span>
+                          <span className="text-[11px] text-[#9C8AA0]">Resolved</span>
                         </div>
                         <p className="text-xs text-[#F6EDE9]">{formatDate(incident.resolved_at)}</p>
                       </div>
@@ -311,7 +379,7 @@ export default function Incidents() {
                     <div>
                       <div className="flex items-center gap-1.5 mb-1">
                         <Icons.Clock />
-                        <span className="text-xs text-[#9C8AA0]">Downtime</span>
+                        <span className="text-[11px] text-[#9C8AA0]">Downtime</span>
                       </div>
                       <p className="text-xs text-[#F6EDE9]">
                         {incident.downtime_duration || (isOpen ? 'Ongoing' : 'N/A')}

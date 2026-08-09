@@ -156,7 +156,7 @@ CELERY_TIMEZONE = 'UTC'
 CELERY_BEAT_SCHEDULE = {
     'run-scheduled-health-checks': {
         'task': 'monitoring.tasks.run_scheduled_checks',
-        'schedule': timedelta(minutes=5),
+        'schedule': timedelta(hours=1),
     },
 }
 

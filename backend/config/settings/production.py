@@ -28,14 +28,15 @@ REST_FRAMEWORK.update({
 })
 
 # Redis handling for Render/Upstash
-# Django cache uses rediss:// URL (cleaned of ssl_cert_reqs)
 REDIS_URL = os.environ.get('REDIS_CACHE_URL', '')
 if REDIS_URL:
-    # Remove ssl_cert_reqs param - Django Redis handles SSL differently
-    clean_url = REDIS_URL.split('?')[0] if '?' in REDIS_URL else REDIS_URL
-    CACHES['default']['LOCATION'] = clean_url
+    CACHES['default']['LOCATION'] = REDIS_URL
     CACHES['default']['OPTIONS'] = {
         'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+        'CONNECTION_POOL_KWARGS': {
+            'ssl': True,
+            'ssl_cert_reqs': None,
+        },
     }
 
 # Celery uses separate URLs with ssl_cert_reqs=CERT_NONE

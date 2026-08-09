@@ -28,16 +28,21 @@ REST_FRAMEWORK.update({
 })
 
 # Redis handling for Render/Upstash
-REDIS_URL = os.environ.get('REDIS_CACHE_URL', os.environ.get('CELERY_BROKER_URL', ''))
+# Django cache uses rediss:// URL (cleaned of ssl_cert_reqs)
+REDIS_URL = os.environ.get('REDIS_CACHE_URL', '')
 if REDIS_URL:
-    CACHES['default']['LOCATION'] = REDIS_URL
+    # Remove ssl_cert_reqs param - Django Redis handles SSL differently
+    clean_url = REDIS_URL.split('?')[0] if '?' in REDIS_URL else REDIS_URL
+    CACHES['default']['LOCATION'] = clean_url
     CACHES['default']['OPTIONS'] = {
         'CLIENT_CLASS': 'django_redis.client.DefaultClient',
     }
-    if not CELERY_BROKER_URL or CELERY_BROKER_URL == 'redis://localhost:6379/0':
-        CELERY_BROKER_URL = os.environ.get('CELERY_BROKER_URL', '')
-    if not CELERY_RESULT_BACKEND or CELERY_RESULT_BACKEND == 'redis://localhost:6379/2':
-        CELERY_RESULT_BACKEND = os.environ.get('CELERY_RESULT_BACKEND', CELERY_BROKER_URL)
+
+# Celery uses separate URLs with ssl_cert_reqs=CERT_NONE
+if not CELERY_BROKER_URL or CELERY_BROKER_URL == 'redis://localhost:6379/0':
+    CELERY_BROKER_URL = os.environ.get('CELERY_BROKER_URL', '')
+if not CELERY_RESULT_BACKEND or CELERY_RESULT_BACKEND == 'redis://localhost:6379/2':
+    CELERY_RESULT_BACKEND = os.environ.get('CELERY_RESULT_BACKEND', CELERY_BROKER_URL)
 
 # Logging
 LOGGING = {

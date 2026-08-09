@@ -30,12 +30,13 @@ REST_FRAMEWORK.update({
 # Redis handling for Render/Upstash
 REDIS_URL = os.environ.get('REDIS_CACHE_URL', os.environ.get('CELERY_BROKER_URL', ''))
 if REDIS_URL:
-    # Update cache with Redis
     CACHES['default']['LOCATION'] = REDIS_URL
     CACHES['default']['OPTIONS'] = {
         'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+        'CONNECTION_POOL_KWARGS': {
+            'ssl_cert_reqs': None,  # Required for Upstash Redis SSL
+        },
     }
-    # Update Celery if not already set
     if not CELERY_BROKER_URL or CELERY_BROKER_URL == 'redis://localhost:6379/0':
         CELERY_BROKER_URL = os.environ.get('CELERY_BROKER_URL', '')
     if not CELERY_RESULT_BACKEND or CELERY_RESULT_BACKEND == 'redis://localhost:6379/2':

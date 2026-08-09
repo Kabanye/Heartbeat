@@ -20,22 +20,23 @@ SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 # Static files
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 
-# Disable browsable API in production
+# Disable browsable API and throttling in production
 REST_FRAMEWORK.update({
     'DEFAULT_RENDERER_CLASSES': [
         'rest_framework.renderers.JSONRenderer',
     ],
+    'DEFAULT_THROTTLE_CLASSES': [],
 })
 
-# Redis handling for Render/Upstash
-REDIS_URL = os.environ.get('REDIS_CACHE_URL', '')
-if REDIS_URL:
-    CACHES['default']['LOCATION'] = REDIS_URL
-    CACHES['default']['OPTIONS'] = {
-        'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+# Use local memory cache to avoid Redis SSL issues
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        'LOCATION': 'heartbeat-cache',
     }
+}
 
-# Celery uses separate URLs with ssl_cert_reqs=CERT_NONE
+# Celery uses Redis with ssl_cert_reqs=CERT_NONE
 CELERY_BROKER_URL = os.environ.get('CELERY_BROKER_URL', CELERY_BROKER_URL)
 CELERY_RESULT_BACKEND = os.environ.get('CELERY_RESULT_BACKEND', CELERY_BROKER_URL)
 

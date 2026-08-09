@@ -56,19 +56,13 @@ def check_mysql_health(service: Service) -> Dict[str, Any]:
     """
     Check a MySQL database by connecting and running SELECT 1.
     """
-    try:
-        import mysql.connector
-    except ImportError:
-        return {
-            'status': 'UNHEALTHY',
-            'response_time': 0,
-            'error_message': 'MySQL connector not installed. Run: pip install mysql-connector-python'
-        }
-    
     username, password = service.get_credentials()
     start_time = time.time()
     
     try:
+        import mysql.connector
+        
+        # Use a context manager-free approach with full cleanup
         conn = mysql.connector.connect(
             host=service.host,
             port=service.port,
@@ -76,12 +70,21 @@ def check_mysql_health(service: Service) -> Dict[str, Any]:
             user=username,
             password=password,
             ssl_disabled=(service.ssl_mode != 'require'),
-            connect_timeout=10
+            connect_timeout=10,
+            autocommit=True,
+            consume_results=True  # Auto-consume results
         )
         
-        cursor = conn.cursor()
-        cursor.execute("SELECT 1")
-        cursor.close()
+        try:
+            cursor = conn.cursor(buffered=True)
+            cursor.execute("SELECT 1")
+            cursor.fetchall()  # Explicitly consume all results
+        finally:
+            try:
+                cursor.close()
+            except:
+                pass
+        
         conn.close()
         
         response_time = (time.time() - start_time) * 1000
@@ -92,13 +95,26 @@ def check_mysql_health(service: Service) -> Dict[str, Any]:
             'error_message': ''
         }
         
+    except ImportError:
+        return {
+            'status': 'UNHEALTHY',
+            'response_time': 0,
+            'error_message': 'MySQL connector not installed'
+        }
     except Exception as e:
         response_time = (time.time() - start_time) * 1000
+        
+        # Try to close connection if it exists
+        try:
+            if 'conn' in locals() and conn:
+                conn.close()
+        except:
+            pass
         
         return {
             'status': 'UNHEALTHY',
             'response_time': round(response_time, 2),
-            'error_message': str(e)
+            'error_message': str(e)[:200]
         }
 
 

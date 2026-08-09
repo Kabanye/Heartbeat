@@ -15,26 +15,30 @@ SESSION_COOKIE_SECURE = True
 CSRF_COOKIE_SECURE = True
 SECURE_HSTS_SECONDS = 31536000
 SECURE_HSTS_INCLUDE_SUBDOMAINS = True
-SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')  # Render uses proxy
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
 # Static files
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 
-# Disable browsable API in production (React frontend uses JSON only)
+# Disable browsable API in production
 REST_FRAMEWORK.update({
     'DEFAULT_RENDERER_CLASSES': [
         'rest_framework.renderers.JSONRenderer',
     ],
 })
 
-# Render Redis handling
-if os.environ.get('RENDER'):
-    REDIS_URL = os.environ.get('REDIS_CACHE_URL', os.environ.get('CELERY_BROKER_URL', ''))
-    if REDIS_URL:
-        if '?' in REDIS_URL:
-            REDIS_URL = REDIS_URL.split('?')[0]
-        CACHES['default']['LOCATION'] = REDIS_URL
+# Redis handling for Render/Upstash
+REDIS_URL = os.environ.get('REDIS_CACHE_URL', os.environ.get('CELERY_BROKER_URL', ''))
+if REDIS_URL:
+    # Update cache with Redis
+    CACHES['default']['LOCATION'] = REDIS_URL
+    CACHES['default']['OPTIONS'] = {
+        'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+    }
+    # Update Celery if not already set
+    if not CELERY_BROKER_URL or CELERY_BROKER_URL == 'redis://localhost:6379/0':
         CELERY_BROKER_URL = os.environ.get('CELERY_BROKER_URL', '')
+    if not CELERY_RESULT_BACKEND or CELERY_RESULT_BACKEND == 'redis://localhost:6379/2':
         CELERY_RESULT_BACKEND = os.environ.get('CELERY_RESULT_BACKEND', CELERY_BROKER_URL)
 
 # Logging
@@ -57,10 +61,10 @@ LOGGING = {
     },
     'django.request': {
         'handlers': ['console'],
-        'level': 'ERROR',  # Only log errors, not every request
+        'level': 'ERROR',
         'propagate': False,
     },
 }
 
-# Production email backend (override in .env)
+# Production email backend
 EMAIL_BACKEND = config('EMAIL_BACKEND', default='django.core.mail.backends.smtp.EmailBackend')

@@ -6,9 +6,6 @@ from django.db import connections
 from django.core.cache import cache
 from django.utils import timezone
 from django_redis import get_redis_connection
-from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import AllowAny
-from rest_framework.response import Response
 
 
 def health_check(request):
@@ -73,20 +70,3 @@ def health_check(request):
     
     return JsonResponse(health_status, status=status_code)
 
-
-@api_view(['GET'])
-@permission_classes([AllowAny])
-def db_info(request):
-    """Show database connection info and tables"""
-    from django.db import connection
-    with connection.cursor() as cursor:
-        cursor.execute("SELECT current_database(), inet_server_addr(), inet_server_port()")
-        db, host, port = cursor.fetchone()
-        cursor.execute("SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name")
-        tables = [t[0] for t in cursor.fetchall()]
-    return Response({
-        'database': db,
-        'host': str(host) if host else None,
-        'port': port,
-        'tables': tables[:30]
-    })

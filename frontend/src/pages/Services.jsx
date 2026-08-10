@@ -200,15 +200,26 @@ export default function Services() {
     setSubmitting(true);
 
     try {
+      const isUrlType = form.service_type === 'REST_API' || form.service_type === 'WEBSITE';
+      
       const payload = {
         ...form,
-        port: parseInt(form.port) || 0,
+        port: isUrlType ? 80 : (parseInt(form.port) || 0),
         check_interval: parseInt(form.check_interval) || 300,
       };
 
+      if (isUrlType) {
+        delete payload.database_name;
+        delete payload.username;
+        delete payload.password;
+        delete payload.ssl_mode;
+      }
+
       if (editingId) {
-        if (!payload.password) delete payload.password;
-        if (!payload.username) delete payload.username;
+        if (!isUrlType) {
+          if (!payload.password) delete payload.password;
+          if (!payload.username) delete payload.username;
+        }
         await servicesApi.update(editingId, payload);
         toast.success('Service updated', `${payload.name} has been updated`);
       } else {

@@ -41,7 +41,8 @@ export default function Layout({ children }) {
     };
   }, [handleSidebarChange]);
 
-  // Determine margin based on sidebar state
+  // On mobile: sidebar overlays, content takes full width
+  // On desktop: content adjusts to sidebar width
   const mainMargin = isMobile 
     ? 'ml-0' 
     : sidebarCollapsed 
@@ -63,7 +64,6 @@ export default function Layout({ children }) {
           <div className="h-14 border-b border-white/[0.06] bg-[#180F20]/90 flex items-center px-4 sticky top-0 z-10 backdrop-blur-xl">
             <button
               onClick={() => {
-                // Toggle sidebar via custom event
                 window.dispatchEvent(new CustomEvent('sidebarToggle'));
               }}
               className="text-[#9C8AA0] hover:text-[#F6EDE9] transition-colors p-1 -ml-1"
@@ -83,7 +83,7 @@ export default function Layout({ children }) {
                 Heartbeat
               </span>
             </div>
-            <div className="w-8" /> {/* Spacer for centering */}
+            <div className="w-8" />
           </div>
         )}
         

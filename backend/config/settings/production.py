@@ -20,6 +20,9 @@ SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 # Static files
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
 
+# Use database for sessions (persists across Render restarts)
+SESSION_ENGINE = 'django.contrib.sessions.backends.db'
+
 # Disable browsable API and throttling in production
 REST_FRAMEWORK.update({
     'DEFAULT_RENDERER_CLASSES': [
@@ -28,7 +31,7 @@ REST_FRAMEWORK.update({
     'DEFAULT_THROTTLE_CLASSES': [],
 })
 
-# Use local memory cache to avoid Redis SSL issues
+# Use local memory cache for general caching
 CACHES = {
     'default': {
         'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',

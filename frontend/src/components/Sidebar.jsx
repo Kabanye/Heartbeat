@@ -75,29 +75,40 @@ const navItems = [
 ];
 
 export default function Sidebar() {
+  // collapsed = desktop rail width (persisted)
   const [collapsed, setCollapsed] = useState(() => {
     return localStorage.getItem('sidebarCollapsed') === 'true';
   });
+  // mobileOpen = mobile drawer visibility (not persisted, always starts closed)
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth < 1024);
   const [unreadCount, setUnreadCount] = useState(0);
   const { user, logout } = useAuth();
   const toast = useToast();
   const location = useLocation();
   const navigate = useNavigate();
-  
+
   // Stable refs to prevent effect re-runs
   const intervalRef = useRef(null);
   const failedRef = useRef(false);
   const isMountedRef = useRef(true);
 
-  // Sync collapsed state to localStorage and dispatch event
+  // Sync collapsed (desktop rail) state to localStorage and dispatch event
   useEffect(() => {
     localStorage.setItem('sidebarCollapsed', collapsed);
     window.dispatchEvent(new CustomEvent('sidebarStateChange'));
   }, [collapsed]);
 
-  // Listen for mobile toggle from Layout
+  // Listen for toggle event dispatched from Layout's hamburger button.
+  // On mobile it opens/closes the drawer; on desktop it collapses/expands the rail.
   useEffect(() => {
-    const handleToggle = () => setCollapsed(prev => !prev);
+    const handleToggle = () => {
+      if (window.innerWidth < 1024) {
+        setMobileOpen((prev) => !prev);
+      } else {
+        setCollapsed((prev) => !prev);
+      }
+    };
     window.addEventListener('sidebarToggle', handleToggle);
     return () => window.removeEventListener('sidebarToggle', handleToggle);
   }, []);
@@ -106,7 +117,7 @@ export default function Sidebar() {
   const fetchUnreadCount = useCallback(async () => {
     if (!isMountedRef.current) return;
     if (failedRef.current) return; // Stop if previous fetch failed
-    
+
     try {
       const res = await notificationsApi.getUnreadCount();
       if (isMountedRef.current) {
@@ -127,19 +138,19 @@ export default function Sidebar() {
   useEffect(() => {
     isMountedRef.current = true;
     failedRef.current = false;
-    
+
     if (!user) return;
 
     // Initial fetch
     fetchUnreadCount();
-    
+
     // Poll every 2 minutes
     intervalRef.current = setInterval(() => {
       if (!failedRef.current) {
         fetchUnreadCount();
       }
     }, 120000);
-    
+
     return () => {
       isMountedRef.current = false;
       if (intervalRef.current) {
@@ -159,38 +170,48 @@ export default function Sidebar() {
     }
   };
 
-  // Close sidebar on mobile when route changes
+  // Close the mobile drawer (never the desktop rail) when route changes
   useEffect(() => {
     if (window.innerWidth < 1024) {
-      setCollapsed(true);
+      setMobileOpen(false);
     }
   }, [location.pathname]);
 
+  // Labels/icons text should show whenever we're NOT in the collapsed desktop rail.
+  // On mobile the drawer is always full width, so labels always show there.
+  const showLabels = mobileOpenAwareShowLabels(collapsed);
+
+  function mobileOpenAwareShowLabels(collapsedState) {
+    if (typeof window === 'undefined') return !collapsedState;
+    return window.innerWidth < 1024 ? true : !collapsedState;
+  }
+
   return (
     <>
-      {/* Mobile overlay */}
-      {!collapsed && (
+      {/* Mobile overlay - only for the drawer, never affects desktop rail */}
+      {mobileOpen && (
         <div
           className="fixed inset-0 bg-black/50 backdrop-blur-sm z-20 lg:hidden animate-fadeIn"
           onClick={() => {
-  setCollapsed(true);
-  window.dispatchEvent(new CustomEvent('sidebarToggle'));
-}}
+            setMobileOpen(false);
+            window.dispatchEvent(new CustomEvent('sidebarToggle'));
+          }}
         />
       )}
 
       <aside
         style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}
-        className={`fixed top-0 left-0 h-full bg-[#180F20] border-r border-white/[0.06] z-30 transition-all duration-300 ease-out flex flex-col shadow-2xl ${
-          collapsed ? 'w-[72px]' : 'w-64'
-        }`}
+        className={`fixed top-0 left-0 h-full bg-[#180F20] border-r border-white/[0.06] z-30 transition-all duration-300 ease-out flex flex-col shadow-2xl
+          w-64 ${collapsed ? 'lg:w-[72px]' : 'lg:w-64'}
+          ${mobileOpen ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0
+        `}
       >
         {/* Logo */}
-        <div className={`flex items-center h-16 px-4 border-b border-white/[0.06] ${collapsed ? 'justify-center' : 'gap-2.5'}`}>
+        <div className={`flex items-center h-16 px-4 border-b border-white/[0.06] ${!showLabels ? 'justify-center' : 'gap-2.5'}`}>
           <div className="text-[#FF5D73] flex-shrink-0 transition-transform hover:scale-110">
             <Icons.Heartbeat />
           </div>
-          {!collapsed && (
+          {showLabels && (
             <span
               style={{ fontFamily: "'Fraunces', serif" }}
               className="italic text-[#F6EDE9] text-lg tracking-tight whitespace-nowrap"
@@ -211,32 +232,32 @@ export default function Sidebar() {
                 key={item.path}
                 to={item.path}
                 onClick={() => {
-  if (window.innerWidth < 1024) {
-    setCollapsed(true);
-    window.dispatchEvent(new CustomEvent('sidebarToggle'));
-  }
-}}
+                  if (window.innerWidth < 1024) {
+                    setMobileOpen(false);
+                    window.dispatchEvent(new CustomEvent('sidebarToggle'));
+                  }
+                }}
                 className={`flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 group relative ${
                   isActive
                     ? 'bg-[#FF5D73]/[0.12] text-[#FF8FA3] font-medium'
                     : 'text-[#9C8AA0] hover:text-[#F6EDE9] hover:bg-white/[0.04]'
-                } ${collapsed ? 'justify-center' : ''}`}
-                title={collapsed ? item.label : ''}
+                } ${!showLabels ? 'justify-center' : ''}`}
+                title={!showLabels ? item.label : ''}
               >
                 <span className="flex-shrink-0 relative">
                   {item.icon}
-                  {isNotifications && unreadCount > 0 && collapsed && (
+                  {isNotifications && unreadCount > 0 && !showLabels && (
                     <span className="absolute -top-1 -right-1 w-4 h-4 bg-[#FF5D73] text-[#1B0E12] text-[9px] font-bold rounded-full flex items-center justify-center">
                       {unreadCount > 9 ? '9+' : unreadCount}
                     </span>
                   )}
                 </span>
-                
-                {!collapsed && (
+
+                {showLabels && (
                   <span className="text-sm whitespace-nowrap">{item.label}</span>
                 )}
 
-                {isNotifications && unreadCount > 0 && !collapsed && (
+                {isNotifications && unreadCount > 0 && showLabels && (
                   <span className="ml-auto flex items-center justify-center bg-[#FF5D73] text-[#1B0E12] text-[11px] font-bold rounded-full min-w-[20px] h-5 px-1.5">
                     {unreadCount > 99 ? '99+' : unreadCount}
                   </span>
@@ -244,12 +265,12 @@ export default function Sidebar() {
 
                 {isActive && (
                   <div className={`absolute right-0 top-1/2 -translate-y-1/2 w-[3px] h-7 bg-[#FF5D73] rounded-l-full ${
-                    collapsed ? 'hidden' : ''
+                    !showLabels ? 'hidden' : ''
                   }`} />
                 )}
 
-                {/* Tooltip for collapsed state */}
-                {collapsed && (
+                {/* Tooltip - only for the real collapsed desktop rail, never mobile */}
+                {!showLabels && (
                   <div className="absolute left-full ml-3 px-2.5 py-1.5 bg-[#1F1329] border border-white/[0.08] rounded-lg text-xs text-[#F6EDE9] whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity duration-200 z-50 shadow-xl">
                     {item.label}
                     {isNotifications && unreadCount > 0 && (
@@ -264,7 +285,7 @@ export default function Sidebar() {
 
         {/* User Section */}
         <div className="border-t border-white/[0.06] p-3">
-          {!collapsed && user && (
+          {showLabels && user && (
             <div className="flex items-center gap-3 px-3 py-2 mb-3 rounded-lg bg-white/[0.02]">
               <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[#FF5D73] to-[#FFB4A8] flex items-center justify-center text-[#1B0E12] text-sm font-bold flex-shrink-0 shadow-lg shadow-[#FF5D73]/20">
                 {user.username?.charAt(0).toUpperCase()}
@@ -276,31 +297,31 @@ export default function Sidebar() {
             </div>
           )}
 
-          <div className={`flex ${collapsed ? 'flex-col' : 'flex-row'} gap-1`}>
+          <div className={`flex ${!showLabels ? 'flex-col' : 'flex-row'} gap-1`}>
             <button
               onClick={() => navigate('/settings')}
               className={`flex items-center justify-center gap-2 p-2 rounded-lg text-[#9C8AA0] hover:text-[#F6EDE9] hover:bg-white/[0.05] transition-all ${
-                collapsed ? 'w-full' : 'flex-1'
+                !showLabels ? 'w-full' : 'flex-1'
               }`}
               title="Settings"
             >
               <Icons.Settings />
-              {!collapsed && <span className="text-xs font-medium">Settings</span>}
+              {showLabels && <span className="text-xs font-medium">Settings</span>}
             </button>
             <button
               onClick={handleLogout}
               className={`flex items-center justify-center gap-2 p-2 rounded-lg text-[#9C8AA0] hover:text-[#FF8FA3] hover:bg-[#FF5D73]/[0.1] transition-all ${
-                collapsed ? 'w-full' : 'flex-1'
+                !showLabels ? 'w-full' : 'flex-1'
               }`}
               title="Sign out"
             >
               <Icons.Logout />
-              {!collapsed && <span className="text-xs font-medium">Sign out</span>}
+              {showLabels && <span className="text-xs font-medium">Sign out</span>}
             </button>
           </div>
         </div>
 
-        {/* Collapse Toggle - hidden on mobile */}
+        {/* Collapse Toggle - controls desktop rail only, hidden on mobile */}
         <button
           onClick={() => setCollapsed(!collapsed)}
           className="absolute -right-3 top-20 w-6 h-6 bg-[#1F1329] border border-white/[0.08] rounded-full hidden lg:flex items-center justify-center text-[#9C8AA0] hover:text-[#F6EDE9] hover:border-[#FF5D73]/40 transition-all shadow-[0_4px_12px_-2px_rgba(0,0,0,0.5)] hover:shadow-[0_4px_16px_-2px_rgba(255,93,115,0.2)]"
@@ -312,16 +333,16 @@ export default function Sidebar() {
 
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz@1,9..144&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
-        
+
         @keyframes fadeIn {
           from { opacity: 0; }
           to { opacity: 1; }
         }
-        
+
         .animate-fadeIn {
           animation: fadeIn 0.2s ease-out;
         }
-        
+
         @media (prefers-reduced-motion: reduce) {
           *, *::before, *::after {
             animation-duration: 0.001ms !important;

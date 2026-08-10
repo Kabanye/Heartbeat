@@ -62,7 +62,6 @@ def check_mysql_health(service: Service) -> Dict[str, Any]:
     try:
         import mysql.connector
         
-        # Use a context manager-free approach with full cleanup
         conn = mysql.connector.connect(
             host=service.host,
             port=service.port,
@@ -72,13 +71,13 @@ def check_mysql_health(service: Service) -> Dict[str, Any]:
             ssl_disabled=(service.ssl_mode != 'require'),
             connect_timeout=10,
             autocommit=True,
-            consume_results=True  # Auto-consume results
+            consume_results=True
         )
         
         try:
             cursor = conn.cursor(buffered=True)
             cursor.execute("SELECT 1")
-            cursor.fetchall()  # Explicitly consume all results
+            cursor.fetchall()
         finally:
             try:
                 cursor.close()
@@ -104,7 +103,6 @@ def check_mysql_health(service: Service) -> Dict[str, Any]:
     except Exception as e:
         response_time = (time.time() - start_time) * 1000
         
-        # Try to close connection if it exists
         try:
             if 'conn' in locals() and conn:
                 conn.close()
@@ -156,18 +154,28 @@ def check_redis_health(service: Service) -> Dict[str, Any]:
 
 def check_rest_api_health(service: Service) -> Dict[str, Any]:
     """
-    Check a REST API by making an HTTP request.
+    Check a REST API or Website by making an HTTP request.
+    If host starts with http:// or https://, use it directly as the URL.
+    Otherwise, construct http://{host}:{port}.
     """
     start_time = time.time()
     
+    # Build URL - if host starts with http, use it directly
+    url = service.host
+    if not url.startswith('http'):
+        port = f":{service.port}" if service.port else ""
+        url = f"http://{url}{port}"
+    
     try:
         response = requests.get(
-            f"http://{service.host}:{service.port}",
-            timeout=10
+            url,
+            timeout=10,
+            allow_redirects=True,
+            headers={'User-Agent': 'Heartbeat/1.0'}
         )
         
         response_time = (time.time() - start_time) * 1000
-        is_healthy = 200 <= response.status_code < 300
+        is_healthy = 200 <= response.status_code < 400
         
         return {
             'status': 'HEALTHY' if is_healthy else 'UNHEALTHY',
@@ -181,7 +189,7 @@ def check_rest_api_health(service: Service) -> Dict[str, Any]:
         return {
             'status': 'UNHEALTHY',
             'response_time': round(response_time, 2),
-            'error_message': str(e)
+            'error_message': str(e)[:200]
         }
 
 

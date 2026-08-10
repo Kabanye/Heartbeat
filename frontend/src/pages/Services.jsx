@@ -55,12 +55,6 @@ const Icons = {
       <path d="M5 12h14M12 5l7 7-7 7" />
     </svg>
   ),
-  Eye: () => (
-    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-      <circle cx="12" cy="12" r="3" />
-    </svg>
-  ),
 };
 
 const PROVIDERS = ['AIVEN', 'AWS', 'GCP', 'AZURE', 'SELF_HOSTED', 'OTHER'];
@@ -94,20 +88,17 @@ export default function Services() {
   const [testingId, setTestingId] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
   
-  // Stable refs
   const fetchedRef = useRef(false);
   const isMountedRef = useRef(true);
   const retryCountRef = useRef(0);
   const retryTimeoutRef = useRef(null);
   const MAX_RETRIES = 2;
 
-  // Stable fetch function
   const fetchServices = useCallback(async () => {
     const res = await servicesApi.getAll();
     return res.data.results || [];
   }, []);
 
-  // Load services on mount - runs once
   useEffect(() => {
     isMountedRef.current = true;
     let cancelled = false;
@@ -141,9 +132,7 @@ export default function Services() {
         setError('Failed to load services');
         toast.error('Error', 'Failed to load services');
       } finally {
-        if (!cancelled && isMountedRef.current) {
-          setLoading(false);
-        }
+        if (!cancelled && isMountedRef.current) setLoading(false);
       }
     };
 
@@ -152,13 +141,10 @@ export default function Services() {
     return () => {
       cancelled = true;
       isMountedRef.current = false;
-      if (retryTimeoutRef.current) {
-        clearTimeout(retryTimeoutRef.current);
-      }
+      if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
     };
-  }, []); // Empty dependency - runs once on mount
+  }, []);
 
-  // Refresh handler
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
@@ -169,23 +155,16 @@ export default function Services() {
         toast.success(null, 'Services refreshed');
       }
     } catch (err) {
-      if (isMountedRef.current) {
-        toast.error('Error', 'Failed to refresh');
-      }
+      if (isMountedRef.current) toast.error('Error', 'Failed to refresh');
     } finally {
-      if (isMountedRef.current) {
-        setRefreshing(false);
-      }
+      if (isMountedRef.current) setRefreshing(false);
     }
   }, [fetchServices, toast]);
 
-  // Reload after create/update/delete
   const reloadServices = useCallback(async () => {
     try {
       const data = await fetchServices();
-      if (isMountedRef.current) {
-        setServices(data);
-      }
+      if (isMountedRef.current) setServices(data);
     } catch (err) {
       // Silently fail
     }
@@ -198,7 +177,7 @@ export default function Services() {
   };
 
   const openEditForm = (e, service) => {
-    e.stopPropagation(); // Prevent navigation
+    e.stopPropagation();
     setEditingId(service.id);
     setForm({
       name: service.name,
@@ -250,12 +229,10 @@ export default function Services() {
   };
 
   const handleToggle = async (e, id) => {
-    e.stopPropagation(); // Prevent navigation
+    e.stopPropagation();
     try {
       await servicesApi.toggle(id);
-      setServices(prev =>
-        prev.map(s => s.id === id ? { ...s, enabled: !s.enabled } : s)
-      );
+      setServices(prev => prev.map(s => s.id === id ? { ...s, enabled: !s.enabled } : s));
       toast.success(null, 'Service toggled');
     } catch (err) {
       toast.error('Error', 'Failed to toggle service');
@@ -275,7 +252,7 @@ export default function Services() {
   };
 
   const handleTestConnection = async (e, id) => {
-    e.stopPropagation(); // Prevent navigation
+    e.stopPropagation();
     setTestingId(id);
     try {
       const res = await servicesApi.testConnection(id);
@@ -295,7 +272,6 @@ export default function Services() {
     navigate(`/services/${id}`);
   };
 
-  // Loading State
   if (loading) {
     return (
       <Layout>
@@ -304,7 +280,6 @@ export default function Services() {
     );
   }
 
-  // Error State
   if (error) {
     return (
       <Layout>
@@ -323,7 +298,6 @@ export default function Services() {
               retryCountRef.current = 0;
               setLoading(true);
               setError(null);
-              // Force reload
               window.location.reload();
             }}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-lg transition-colors text-sm font-medium"
@@ -340,7 +314,6 @@ export default function Services() {
   return (
     <Layout>
       <div className="p-6 max-w-5xl mx-auto" style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
-        {/* Header */}
         <div className="flex items-center justify-between mb-8">
           <div>
             <h1 className="text-3xl font-bold text-[#F6EDE9] tracking-tight">Services</h1>
@@ -349,24 +322,11 @@ export default function Services() {
             </p>
           </div>
           <div className="flex items-center gap-2">
-            <button
-              onClick={handleRefresh}
-              disabled={refreshing}
-              className="p-2 rounded-lg transition-colors disabled:opacity-50"
-              style={{ color: '#9C8AA0' }}
-              title="Refresh"
-            >
-              <span className={refreshing ? 'animate-spin block' : ''}>
-                <Icons.Refresh />
-              </span>
+            <button onClick={handleRefresh} disabled={refreshing} className="p-2 rounded-lg transition-colors disabled:opacity-50" style={{ color: '#9C8AA0' }} title="Refresh">
+              <span className={refreshing ? 'animate-spin block' : ''}><Icons.Refresh /></span>
             </button>
-            <button
-              onClick={openCreateForm}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all"
-              style={{ backgroundColor: '#FF5D731F', color: '#FF8FA3' }}
-            >
-              <Icons.Add />
-              Add Service
+            <button onClick={openCreateForm} className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-all" style={{ backgroundColor: '#FF5D731F', color: '#FF8FA3' }}>
+              <Icons.Add /> Add Service
             </button>
           </div>
         </div>
@@ -376,149 +336,85 @@ export default function Services() {
           <>
             <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40" onClick={() => setShowForm(false)} />
             <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-              <div 
-                className="w-full max-w-lg rounded-2xl border shadow-2xl overflow-hidden"
-                style={{ backgroundColor: '#1F1329', borderColor: 'rgba(255,255,255,0.08)' }}
-              >
+              <div className="w-full max-w-lg rounded-2xl border shadow-2xl overflow-hidden" style={{ backgroundColor: '#1F1329', borderColor: 'rgba(255,255,255,0.08)' }}>
                 <div className="flex items-center justify-between p-5 border-b" style={{ borderColor: 'rgba(255,255,255,0.06)' }}>
-                  <h2 className="text-lg font-bold text-[#F6EDE9]">
-                    {editingId ? 'Edit Service' : 'Add New Service'}
-                  </h2>
-                  <button onClick={() => setShowForm(false)} style={{ color: '#9C8AA0' }}>
-                    <Icons.Close />
-                  </button>
+                  <h2 className="text-lg font-bold text-[#F6EDE9]">{editingId ? 'Edit Service' : 'Add New Service'}</h2>
+                  <button onClick={() => setShowForm(false)} style={{ color: '#9C8AA0' }}><Icons.Close /></button>
                 </div>
 
                 <form onSubmit={handleSubmit} className="p-5 space-y-4 max-h-[70vh] overflow-y-auto">
                   <div>
                     <label className="block text-xs font-medium text-[#9C8AA0] mb-1.5">Service Name</label>
-                    <input
-                      type="text"
-                      value={form.name}
-                      onChange={(e) => setForm({ ...form, name: e.target.value })}
-                      className="w-full px-3 py-2.5 rounded-lg text-sm text-[#F6EDE9] border outline-none transition-colors"
-                      style={{ backgroundColor: '#180F20', borderColor: 'rgba(255,255,255,0.08)' }}
-                      placeholder="My Aiven PostgreSQL"
-                      required
-                    />
+                    <input type="text" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="w-full px-3 py-2.5 rounded-lg text-sm text-[#F6EDE9] border outline-none" style={{ backgroundColor: '#180F20', borderColor: 'rgba(255,255,255,0.08)' }} placeholder="My Service" required />
                   </div>
 
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="block text-xs font-medium text-[#9C8AA0] mb-1.5">Provider</label>
-                      <select
-                        value={form.provider}
-                        onChange={(e) => setForm({ ...form, provider: e.target.value })}
-                        className="w-full px-3 py-2.5 rounded-lg text-sm text-[#F6EDE9] border outline-none"
-                        style={{ backgroundColor: '#180F20', borderColor: 'rgba(255,255,255,0.08)' }}
-                      >
-                        {PROVIDERS.map(p => (
-                          <option key={p} value={p}>{p.replace('_', ' ')}</option>
-                        ))}
+                      <select value={form.provider} onChange={(e) => setForm({ ...form, provider: e.target.value })} className="w-full px-3 py-2.5 rounded-lg text-sm text-[#F6EDE9] border outline-none" style={{ backgroundColor: '#180F20', borderColor: 'rgba(255,255,255,0.08)' }}>
+                        {PROVIDERS.map(p => (<option key={p} value={p}>{p.replace('_', ' ')}</option>))}
                       </select>
                     </div>
                     <div>
                       <label className="block text-xs font-medium text-[#9C8AA0] mb-1.5">Service Type</label>
-                      <select
-                        value={form.service_type}
-                        onChange={(e) => setForm({ ...form, service_type: e.target.value })}
-                        className="w-full px-3 py-2.5 rounded-lg text-sm text-[#F6EDE9] border outline-none"
-                        style={{ backgroundColor: '#180F20', borderColor: 'rgba(255,255,255,0.08)' }}
-                      >
-                        {SERVICE_TYPES.map(t => (
-                          <option key={t} value={t}>{t.replace('_', ' ')}</option>
-                        ))}
+                      <select value={form.service_type} onChange={(e) => {
+                        const newType = e.target.value;
+                        if (newType === 'REST_API' || newType === 'WEBSITE') {
+                          setForm({ ...form, service_type: newType, host: '', port: '', database_name: '', username: '', password: '' });
+                        } else {
+                          setForm({ ...form, service_type: newType });
+                        }
+                      }} className="w-full px-3 py-2.5 rounded-lg text-sm text-[#F6EDE9] border outline-none" style={{ backgroundColor: '#180F20', borderColor: 'rgba(255,255,255,0.08)' }}>
+                        {SERVICE_TYPES.map(t => (<option key={t} value={t}>{t.replace('_', ' ')}</option>))}
                       </select>
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4">
+                  {/* URL field for REST API / Website */}
+                  {(form.service_type === 'REST_API' || form.service_type === 'WEBSITE') ? (
                     <div>
-                      <label className="block text-xs font-medium text-[#9C8AA0] mb-1.5">Host</label>
-                      <input
-                        type="text"
-                        value={form.host}
-                        onChange={(e) => setForm({ ...form, host: e.target.value })}
-                        className="w-full px-3 py-2.5 rounded-lg text-sm text-[#F6EDE9] border outline-none"
-                        style={{ backgroundColor: '#180F20', borderColor: 'rgba(255,255,255,0.08)' }}
-                        placeholder="host.aivencloud.com"
-                        required
-                      />
+                      <label className="block text-xs font-medium text-[#9C8AA0] mb-1.5">URL</label>
+                      <input type="url" value={form.host} onChange={(e) => setForm({ ...form, host: e.target.value })} className="w-full px-3 py-2.5 rounded-lg text-sm text-[#F6EDE9] border outline-none" style={{ backgroundColor: '#180F20', borderColor: 'rgba(255,255,255,0.08)' }} placeholder="https://example.com" required />
+                      <p className="text-[10px] text-[#9C8AA0]/60 mt-1">Enter the full URL including https://</p>
                     </div>
-                    <div>
-                      <label className="block text-xs font-medium text-[#9C8AA0] mb-1.5">Port</label>
-                      <input
-                        type="number"
-                        value={form.port}
-                        onChange={(e) => setForm({ ...form, port: e.target.value })}
-                        className="w-full px-3 py-2.5 rounded-lg text-sm text-[#F6EDE9] border outline-none"
-                        style={{ backgroundColor: '#180F20', borderColor: 'rgba(255,255,255,0.08)' }}
-                        placeholder="21699"
-                        required
-                      />
-                    </div>
-                  </div>
+                  ) : (
+                    /* Database fields for PostgreSQL, MySQL, Redis */
+                    <>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-xs font-medium text-[#9C8AA0] mb-1.5">Host</label>
+                          <input type="text" value={form.host} onChange={(e) => setForm({ ...form, host: e.target.value })} className="w-full px-3 py-2.5 rounded-lg text-sm text-[#F6EDE9] border outline-none" style={{ backgroundColor: '#180F20', borderColor: 'rgba(255,255,255,0.08)' }} placeholder="host.aivencloud.com" required />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-[#9C8AA0] mb-1.5">Port</label>
+                          <input type="number" value={form.port} onChange={(e) => setForm({ ...form, port: e.target.value })} className="w-full px-3 py-2.5 rounded-lg text-sm text-[#F6EDE9] border outline-none" style={{ backgroundColor: '#180F20', borderColor: 'rgba(255,255,255,0.08)' }} placeholder="21699" required />
+                        </div>
+                      </div>
 
-                  <div>
-                    <label className="block text-xs font-medium text-[#9C8AA0] mb-1.5">Database Name</label>
-                    <input
-                      type="text"
-                      value={form.database_name}
-                      onChange={(e) => setForm({ ...form, database_name: e.target.value })}
-                      className="w-full px-3 py-2.5 rounded-lg text-sm text-[#F6EDE9] border outline-none"
-                      style={{ backgroundColor: '#180F20', borderColor: 'rgba(255,255,255,0.08)' }}
-                      placeholder="defaultdb"
-                    />
-                  </div>
+                      {form.service_type !== 'REDIS' && (
+                        <div>
+                          <label className="block text-xs font-medium text-[#9C8AA0] mb-1.5">Database Name</label>
+                          <input type="text" value={form.database_name} onChange={(e) => setForm({ ...form, database_name: e.target.value })} className="w-full px-3 py-2.5 rounded-lg text-sm text-[#F6EDE9] border outline-none" style={{ backgroundColor: '#180F20', borderColor: 'rgba(255,255,255,0.08)' }} placeholder="defaultdb" />
+                        </div>
+                      )}
 
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-xs font-medium text-[#9C8AA0] mb-1.5">
-                        Username {editingId && <span className="text-[#FFB454]">(leave empty to keep)</span>}
-                      </label>
-                      <input
-                        type="text"
-                        value={form.username}
-                        onChange={(e) => setForm({ ...form, username: e.target.value })}
-                        className="w-full px-3 py-2.5 rounded-lg text-sm text-[#F6EDE9] border outline-none"
-                        style={{ backgroundColor: '#180F20', borderColor: 'rgba(255,255,255,0.08)' }}
-                        placeholder="avnadmin"
-                        required={!editingId}
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-[#9C8AA0] mb-1.5">
-                        Password {editingId && <span className="text-[#FFB454]">(leave empty to keep)</span>}
-                      </label>
-                      <input
-                        type="password"
-                        value={form.password}
-                        onChange={(e) => setForm({ ...form, password: e.target.value })}
-                        className="w-full px-3 py-2.5 rounded-lg text-sm text-[#F6EDE9] border outline-none"
-                        style={{ backgroundColor: '#180F20', borderColor: 'rgba(255,255,255,0.08)' }}
-                        placeholder="••••••••"
-                        required={!editingId}
-                      />
-                    </div>
-                  </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-xs font-medium text-[#9C8AA0] mb-1.5">Username {editingId && <span className="text-[#FFB454]">(leave empty to keep)</span>}</label>
+                          <input type="text" value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} className="w-full px-3 py-2.5 rounded-lg text-sm text-[#F6EDE9] border outline-none" style={{ backgroundColor: '#180F20', borderColor: 'rgba(255,255,255,0.08)' }} placeholder={form.service_type === 'REDIS' ? 'default' : 'avnadmin'} required={!editingId} />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-[#9C8AA0] mb-1.5">Password {editingId && <span className="text-[#FFB454]">(leave empty to keep)</span>}</label>
+                          <input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} className="w-full px-3 py-2.5 rounded-lg text-sm text-[#F6EDE9] border outline-none" style={{ backgroundColor: '#180F20', borderColor: 'rgba(255,255,255,0.08)' }} placeholder="••••••••" required={!editingId} />
+                        </div>
+                      </div>
+                    </>
+                  )}
 
-                  <button
-                    type="submit"
-                    disabled={submitting}
-                    className="w-full py-3 rounded-xl text-sm font-semibold transition-all disabled:opacity-50"
-                    style={{ backgroundColor: '#FF5D73', color: '#1B0E12' }}
-                  >
+                  <button type="submit" disabled={submitting} className="w-full py-3 rounded-xl text-sm font-semibold transition-all disabled:opacity-50" style={{ backgroundColor: '#FF5D73', color: '#1B0E12' }}>
                     {submitting ? (
-                      <span className="flex items-center justify-center gap-2">
-                        <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
-                          <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2" opacity="0.25" />
-                          <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                        </svg>
-                        {editingId ? 'Updating...' : 'Creating...'}
-                      </span>
-                    ) : (
-                      editingId ? 'Update Service' : 'Create Service'
-                    )}
+                      <span className="flex items-center justify-center gap-2"><svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2" opacity="0.25" /><path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>{editingId ? 'Updating...' : 'Creating...'}</span>
+                    ) : (editingId ? 'Update Service' : 'Create Service')}
                   </button>
                 </form>
               </div>
@@ -532,18 +428,12 @@ export default function Services() {
             <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40" onClick={() => setDeleteConfirm(null)} />
             <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
               <div className="w-full max-w-sm rounded-2xl border p-6 text-center shadow-2xl" style={{ backgroundColor: '#1F1329', borderColor: 'rgba(255,255,255,0.08)' }}>
-                <div className="w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-4" style={{ backgroundColor: '#FF5D731F' }}>
-                  <Icons.Trash />
-                </div>
+                <div className="w-12 h-12 rounded-full flex items-center justify-center mx-auto mb-4" style={{ backgroundColor: '#FF5D731F' }}><Icons.Trash /></div>
                 <h3 className="text-[#F6EDE9] font-bold mb-1">Delete Service?</h3>
                 <p className="text-[#9C8AA0] text-sm mb-4">This action cannot be undone.</p>
                 <div className="flex gap-2">
-                  <button onClick={() => setDeleteConfirm(null)} className="flex-1 py-2.5 rounded-lg text-sm font-medium border" style={{ color: '#9C8AA0', borderColor: 'rgba(255,255,255,0.08)' }}>
-                    Cancel
-                  </button>
-                  <button onClick={handleDelete} className="flex-1 py-2.5 rounded-lg text-sm font-medium" style={{ backgroundColor: '#FF5D73', color: '#1B0E12' }}>
-                    Delete
-                  </button>
+                  <button onClick={() => setDeleteConfirm(null)} className="flex-1 py-2.5 rounded-lg text-sm font-medium border" style={{ color: '#9C8AA0', borderColor: 'rgba(255,255,255,0.08)' }}>Cancel</button>
+                  <button onClick={handleDelete} className="flex-1 py-2.5 rounded-lg text-sm font-medium" style={{ backgroundColor: '#FF5D73', color: '#1B0E12' }}>Delete</button>
                 </div>
               </div>
             </div>
@@ -554,121 +444,33 @@ export default function Services() {
         {services.length > 0 ? (
           <div className="space-y-2">
             {services.map((service) => (
-              <div
-                key={service.id}
-                onClick={() => handleServiceClick(service.id)}
-                className="flex items-center justify-between p-4 rounded-xl border transition-all duration-200 group cursor-pointer"
-                style={{ backgroundColor: '#1F1329', borderColor: 'rgba(255,255,255,0.06)' }}
-              >
+              <div key={service.id} onClick={() => handleServiceClick(service.id)} className="flex items-center justify-between p-4 rounded-xl border transition-all duration-200 group cursor-pointer" style={{ backgroundColor: '#1F1329', borderColor: 'rgba(255,255,255,0.06)' }}>
                 <div className="flex items-center gap-3.5 min-w-0 flex-1">
                   <div className="relative flex-shrink-0">
-                    <span
-                      className="block w-2.5 h-2.5 rounded-full"
-                      style={{
-                        backgroundColor:
-                          service.current_status === 'HEALTHY' ? '#7DD9A6' :
-                          service.current_status === 'UNHEALTHY' ? '#FF5D73' : '#6B5C6E',
-                        boxShadow:
-                          service.current_status === 'HEALTHY' ? '0 0 8px rgba(125,217,166,0.5)' :
-                          service.current_status === 'UNHEALTHY' ? '0 0 8px rgba(255,93,115,0.5)' : 'none',
-                      }}
-                    />
+                    <span className="block w-2.5 h-2.5 rounded-full" style={{ backgroundColor: service.current_status === 'HEALTHY' ? '#7DD9A6' : service.current_status === 'UNHEALTHY' ? '#FF5D73' : '#6B5C6E', boxShadow: service.current_status === 'HEALTHY' ? '0 0 8px rgba(125,217,166,0.5)' : service.current_status === 'UNHEALTHY' ? '0 0 8px rgba(255,93,115,0.5)' : 'none' }} />
                   </div>
                   <div className="min-w-0">
-                    <p className="text-[#F6EDE9] font-medium text-sm truncate group-hover:text-[#FF8FA3] transition-colors">
-                      {service.name}
-                    </p>
-                    <p className="text-xs text-[#9C8AA0]/70 mt-0.5 truncate">
-                      {service.service_type_display} • {service.host}:{service.port}
-                    </p>
+                    <p className="text-[#F6EDE9] font-medium text-sm truncate group-hover:text-[#FF8FA3] transition-colors">{service.name}</p>
+                    <p className="text-xs text-[#9C8AA0]/70 mt-0.5 truncate">{service.service_type_display} • {service.host}{service.port ? `:${service.port}` : ''}</p>
                   </div>
                   <Icons.ArrowRight />
                 </div>
-
                 <div className="flex items-center gap-1.5 flex-shrink-0 ml-3" onClick={(e) => e.stopPropagation()}>
-                  <span
-                    className="text-xs px-2.5 py-1 rounded-full font-medium hidden sm:block"
-                    style={{
-                      color:
-                        service.current_status === 'HEALTHY' ? '#7DD9A6' :
-                        service.current_status === 'UNHEALTHY' ? '#FF8FA3' : '#9C8AA0',
-                      backgroundColor:
-                        service.current_status === 'HEALTHY' ? '#7DD9A61F' :
-                        service.current_status === 'UNHEALTHY' ? '#FF5D731F' : 'rgba(156,138,160,0.1)',
-                    }}
-                  >
-                    {service.status_display}
-                  </span>
-
-                  <button
-                    onClick={(e) => handleTestConnection(e, service.id)}
-                    disabled={testingId === service.id}
-                    className="p-2 rounded-lg transition-colors disabled:opacity-50 hidden sm:block"
-                    style={{ color: '#9C8AA0' }}
-                    title="Test connection"
-                  >
-                    {testingId === service.id ? (
-                      <svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none">
-                        <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2" opacity="0.25" />
-                        <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-                      </svg>
-                    ) : (
-                      <Icons.Test />
-                    )}
-                  </button>
-
-                  <button
-                    onClick={(e) => handleToggle(e, service.id)}
-                    className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
-                    style={{
-                      color: service.enabled ? '#7DD9A6' : '#9C8AA0',
-                      backgroundColor: service.enabled ? '#7DD9A61F' : 'rgba(156,138,160,0.1)',
-                    }}
-                  >
-                    {service.enabled ? 'On' : 'Off'}
-                  </button>
-
-                  <button
-                    onClick={(e) => openEditForm(e, service)}
-                    className="p-2 rounded-lg transition-colors"
-                    style={{ color: '#9C8AA0' }}
-                    title="Edit"
-                  >
-                    <Icons.Edit />
-                  </button>
-
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setDeleteConfirm(service.id);
-                    }}
-                    className="p-2 rounded-lg transition-colors"
-                    style={{ color: '#9C8AA0' }}
-                    title="Delete"
-                  >
-                    <Icons.Trash />
-                  </button>
+                  <span className="text-xs px-2.5 py-1 rounded-full font-medium hidden sm:block" style={{ color: service.current_status === 'HEALTHY' ? '#7DD9A6' : service.current_status === 'UNHEALTHY' ? '#FF8FA3' : '#9C8AA0', backgroundColor: service.current_status === 'HEALTHY' ? '#7DD9A61F' : service.current_status === 'UNHEALTHY' ? '#FF5D731F' : 'rgba(156,138,160,0.1)' }}>{service.status_display}</span>
+                  <button onClick={(e) => handleTestConnection(e, service.id)} disabled={testingId === service.id} className="p-2 rounded-lg transition-colors disabled:opacity-50 hidden sm:block" style={{ color: '#9C8AA0' }} title="Test connection">{testingId === service.id ? (<svg className="w-4 h-4 animate-spin" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2" opacity="0.25" /><path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor" strokeWidth="2" strokeLinecap="round" /></svg>) : (<Icons.Test />)}</button>
+                  <button onClick={(e) => handleToggle(e, service.id)} className="px-3 py-1.5 rounded-lg text-xs font-medium transition-all" style={{ color: service.enabled ? '#7DD9A6' : '#9C8AA0', backgroundColor: service.enabled ? '#7DD9A61F' : 'rgba(156,138,160,0.1)' }}>{service.enabled ? 'On' : 'Off'}</button>
+                  <button onClick={(e) => openEditForm(e, service)} className="p-2 rounded-lg transition-colors" style={{ color: '#9C8AA0' }} title="Edit"><Icons.Edit /></button>
+                  <button onClick={(e) => { e.stopPropagation(); setDeleteConfirm(service.id); }} className="p-2 rounded-lg transition-colors" style={{ color: '#9C8AA0' }} title="Delete"><Icons.Trash /></button>
                 </div>
               </div>
             ))}
           </div>
         ) : (
           <div className="flex flex-col items-center justify-center py-20 text-center">
-            <div className="mb-6">
-              <Icons.Empty />
-            </div>
+            <div className="mb-6"><Icons.Empty /></div>
             <h3 className="text-[#F6EDE9] font-semibold text-lg mb-1">No services yet</h3>
-            <p className="text-[#9C8AA0] text-sm mb-6 max-w-sm">
-              Add your first service to start monitoring. We support PostgreSQL, Redis, MySQL, and more.
-            </p>
-            <button
-              onClick={openCreateForm}
-              className="inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-medium transition-all"
-              style={{ backgroundColor: '#FF5D731F', color: '#FF8FA3' }}
-            >
-              <Icons.Add />
-              Add Your First Service
-            </button>
+            <p className="text-[#9C8AA0] text-sm mb-6 max-w-sm">Add your first service to start monitoring. We support PostgreSQL, Redis, MySQL, REST APIs, and Websites.</p>
+            <button onClick={openCreateForm} className="inline-flex items-center gap-2 px-6 py-3 rounded-xl text-sm font-medium transition-all" style={{ backgroundColor: '#FF5D731F', color: '#FF8FA3' }}><Icons.Add /> Add Your First Service</button>
           </div>
         )}
       </div>

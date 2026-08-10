@@ -6,7 +6,6 @@ export default function Layout({ children }) {
     return localStorage.getItem('sidebarCollapsed') === 'true';
   });
   const [isMobile, setIsMobile] = useState(window.innerWidth < 1024);
-  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   // Check mobile on resize
   useEffect(() => {
@@ -27,18 +26,18 @@ export default function Layout({ children }) {
   }, []);
 
   useEffect(() => {
+    // Initial check
     handleSidebarChange();
+
+    // Listen for storage changes (cross-tab)
     window.addEventListener('storage', handleSidebarChange);
-    window.addEventListener('sidebarStateChange', handleSidebarChange);
     
-    // Listen for mobile toggle
-    const handleMobileToggle = () => setMobileSidebarOpen(prev => !prev);
-    window.addEventListener('sidebarToggle', handleMobileToggle);
+    // Listen for custom event (same-tab)
+    window.addEventListener('sidebarStateChange', handleSidebarChange);
     
     return () => {
       window.removeEventListener('storage', handleSidebarChange);
       window.removeEventListener('sidebarStateChange', handleSidebarChange);
-      window.removeEventListener('sidebarToggle', handleMobileToggle);
     };
   }, [handleSidebarChange]);
 
@@ -55,20 +54,7 @@ export default function Layout({ children }) {
       className="flex min-h-screen bg-[#0a0a0f]"
       style={{ fontFamily: "'Plus Jakarta Sans', sans-serif" }}
     >
-      {/* Mobile overlay */}
-      {isMobile && mobileSidebarOpen && (
-        <div 
-          className="fixed inset-0 bg-black/50 backdrop-blur-sm z-20"
-          onClick={() => setMobileSidebarOpen(false)}
-        />
-      )}
-
-      {/* Sidebar - hidden on mobile unless toggled */}
-      <div className={`fixed top-0 left-0 z-30 transition-transform duration-300 ease-out lg:translate-x-0 ${
-        isMobile && !mobileSidebarOpen ? '-translate-x-full' : 'translate-x-0'
-      }`}>
-        <Sidebar />
-      </div>
+      <Sidebar />
       
       <main 
         className={`flex-1 transition-all duration-300 ease-out ${mainMargin}`}
@@ -77,9 +63,11 @@ export default function Layout({ children }) {
         {isMobile && (
           <div className="h-14 border-b border-white/[0.06] bg-[#180F20]/90 flex items-center px-4 sticky top-0 z-10 backdrop-blur-xl">
             <button
-              onClick={() => setMobileSidebarOpen(true)}
+              onClick={() => {
+                window.dispatchEvent(new CustomEvent('sidebarToggle'));
+              }}
               className="text-[#9C8AA0] hover:text-[#F6EDE9] transition-colors p-1 -ml-1"
-              aria-label="Open sidebar"
+              aria-label="Toggle sidebar"
             >
               <svg className="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
                 <line x1="3" y1="6" x2="21" y2="6" />

@@ -84,24 +84,28 @@ export default function Sidebar() {
   const location = useLocation();
   const navigate = useNavigate();
   
+  // Stable refs to prevent effect re-runs
   const intervalRef = useRef(null);
   const failedRef = useRef(false);
   const isMountedRef = useRef(true);
 
+  // Sync collapsed state to localStorage and dispatch event
   useEffect(() => {
     localStorage.setItem('sidebarCollapsed', collapsed);
     window.dispatchEvent(new CustomEvent('sidebarStateChange'));
   }, [collapsed]);
 
+  // Listen for mobile toggle from Layout
   useEffect(() => {
     const handleToggle = () => setCollapsed(prev => !prev);
     window.addEventListener('sidebarToggle', handleToggle);
     return () => window.removeEventListener('sidebarToggle', handleToggle);
   }, []);
 
+  // Fetch unread count - stable, stops on error
   const fetchUnreadCount = useCallback(async () => {
     if (!isMountedRef.current) return;
-    if (failedRef.current) return;
+    if (failedRef.current) return; // Stop if previous fetch failed
     
     try {
       const res = await notificationsApi.getUnreadCount();
@@ -110,21 +114,26 @@ export default function Sidebar() {
         failedRef.current = false;
       }
     } catch (err) {
+      // Stop polling on auth errors
       if (err.response?.status === 401) {
         failedRef.current = true;
         if (isMountedRef.current) setUnreadCount(0);
       }
+      // Silently ignore network errors
     }
   }, []);
 
+  // Poll for notifications - only when user exists
   useEffect(() => {
     isMountedRef.current = true;
     failedRef.current = false;
     
     if (!user) return;
 
+    // Initial fetch
     fetchUnreadCount();
     
+    // Poll every 2 minutes
     intervalRef.current = setInterval(() => {
       if (!failedRef.current) {
         fetchUnreadCount();
@@ -150,6 +159,7 @@ export default function Sidebar() {
     }
   };
 
+  // Close sidebar on mobile when route changes
   useEffect(() => {
     if (window.innerWidth < 1024) {
       setCollapsed(true);
@@ -158,13 +168,14 @@ export default function Sidebar() {
 
   return (
     <>
+      {/* Mobile overlay */}
       {!collapsed && (
         <div
           className="fixed inset-0 bg-black/50 backdrop-blur-sm z-20 lg:hidden animate-fadeIn"
           onClick={() => {
-            setCollapsed(true);
-            window.dispatchEvent(new CustomEvent('sidebarToggle'));
-          }}
+  setCollapsed(true);
+  window.dispatchEvent(new CustomEvent('sidebarToggle'));
+}}
         />
       )}
 
@@ -174,6 +185,7 @@ export default function Sidebar() {
           collapsed ? 'w-[72px]' : 'w-64'
         }`}
       >
+        {/* Logo */}
         <div className={`flex items-center h-16 px-4 border-b border-white/[0.06] ${collapsed ? 'justify-center' : 'gap-2.5'}`}>
           <div className="text-[#FF5D73] flex-shrink-0 transition-transform hover:scale-110">
             <Icons.Heartbeat />
@@ -188,6 +200,7 @@ export default function Sidebar() {
           )}
         </div>
 
+        {/* Navigation */}
         <nav className="flex-1 py-4 px-3 space-y-1 overflow-y-auto overflow-x-hidden">
           {navItems.map((item) => {
             const isActive = location.pathname === item.path;
@@ -198,11 +211,11 @@ export default function Sidebar() {
                 key={item.path}
                 to={item.path}
                 onClick={() => {
-                  if (window.innerWidth < 1024) {
-                    setCollapsed(true);
-                    window.dispatchEvent(new CustomEvent('sidebarToggle'));
-                  }
-                }}
+  if (window.innerWidth < 1024) {
+    setCollapsed(true);
+    window.dispatchEvent(new CustomEvent('sidebarToggle'));
+  }
+}}
                 className={`flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 group relative ${
                   isActive
                     ? 'bg-[#FF5D73]/[0.12] text-[#FF8FA3] font-medium'
@@ -235,6 +248,7 @@ export default function Sidebar() {
                   }`} />
                 )}
 
+                {/* Tooltip for collapsed state */}
                 {collapsed && (
                   <div className="absolute left-full ml-3 px-2.5 py-1.5 bg-[#1F1329] border border-white/[0.08] rounded-lg text-xs text-[#F6EDE9] whitespace-nowrap opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity duration-200 z-50 shadow-xl">
                     {item.label}
@@ -248,6 +262,7 @@ export default function Sidebar() {
           })}
         </nav>
 
+        {/* User Section */}
         <div className="border-t border-white/[0.06] p-3">
           {!collapsed && user && (
             <div className="flex items-center gap-3 px-3 py-2 mb-3 rounded-lg bg-white/[0.02]">
@@ -285,6 +300,7 @@ export default function Sidebar() {
           </div>
         </div>
 
+        {/* Collapse Toggle - hidden on mobile */}
         <button
           onClick={() => setCollapsed(!collapsed)}
           className="absolute -right-3 top-20 w-6 h-6 bg-[#1F1329] border border-white/[0.08] rounded-full hidden lg:flex items-center justify-center text-[#9C8AA0] hover:text-[#F6EDE9] hover:border-[#FF5D73]/40 transition-all shadow-[0_4px_12px_-2px_rgba(0,0,0,0.5)] hover:shadow-[0_4px_16px_-2px_rgba(255,93,115,0.2)]"
